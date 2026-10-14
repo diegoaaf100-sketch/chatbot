@@ -5,3 +5,4 @@ gspread
 plotly
 google-auth
 tabulate
+Authlib>=1.3.2
