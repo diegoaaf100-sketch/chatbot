@@ -1,6 +1,7 @@
 import re
 import unicodedata
 
+from google import genai
 import gspread
 import pandas as pd
 import plotly.express as px
@@ -25,7 +26,6 @@ try:
     is_logged_in = st.user.is_logged_in
     email_usuario = str(st.user.get("email", "")).strip().lower()
 except Exception:
-    # Ambiente local: simula usuário para permitir testes
     is_logged_in = True
     email_usuario = "desenvolvedor@local.com"
 
@@ -39,7 +39,6 @@ if not is_logged_in:
     )
     st.stop()
 
-# Carregar e-mails autorizados do secrets com segurança
 try:
     emails_autorizados = {
         str(email).strip().lower()
@@ -109,7 +108,6 @@ def carregar_planilha():
         dict(st.secrets["google_service_account"])
     )
 
-    # Tratamento seguro para o ID da planilha (evita o erro KeyError)
     spreadsheet_id = st.secrets.get("spreadsheet_id")
     if not spreadsheet_id:
         raise ValueError("A chave 'spreadsheet_id' não foi encontrada no arquivo secrets.toml.")
@@ -154,17 +152,6 @@ if df.empty:
 # FUNÇÕES AUXILIARES
 # =========================================================
 
-def normalizar(texto):
-    texto = str(texto).lower().strip()
-    texto = unicodedata.normalize("NFKD", texto)
-    texto = "".join(
-        caractere for caractere in texto
-        if not unicodedata.combining(caractere)
-    )
-    texto = re.sub(r"[^\w\s/-]", " ", texto)
-    return re.sub(r"\s+", " ", texto).strip()
-
-
 def extrair_dias(valor):
     if pd.isna(valor):
         return None
@@ -172,10 +159,6 @@ def extrair_dias(valor):
     if resultado:
         return int(resultado.group())
     return None
-
-
-def coluna_existe(dados, coluna):
-    return coluna in dados.columns
 
 
 def converter_ano(dados, coluna):
@@ -342,18 +325,6 @@ else:
             use_container_width=True,
         )
 
-        idx_pedido = anual_selecionada["Reserva a pedido"].idxmax()
-        idx_compulsoria = anual_selecionada["Reserva compulsória"].idxmax()
-
-        ano_pedido = int(anual_selecionada.loc[idx_pedido, "Ano"])
-        valor_pedido = int(anual_selecionada.loc[idx_pedido, "Reserva a pedido"])
-        ano_compulsoria = int(anual_selecionada.loc[idx_compulsoria, "Ano"])
-        valor_compulsoria = int(anual_selecionada.loc[idx_compulsoria, "Reserva compulsória"])
-
-        c1, c2 = st.columns(2)
-        c1.info(f"Maior previsão de reserva a pedido: {ano_pedido} ({valor_pedido} registros).")
-        c2.info(f"Maior previsão de reserva compulsória: {ano_compulsoria} ({valor_compulsoria} registros).")
-
 st.divider()
 
 # =========================================================
@@ -387,142 +358,46 @@ else:
 st.divider()
 
 # =========================================================
-# CHATBOT LOCAL
+# CHATBOT COM GEMINI INTELIGENTE
 # =========================================================
 
+try:
+    gemini_client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
+except Exception:
+    gemini_client = None
+
+
 def responder_chatbot(pergunta, dados):
-    t = normalizar(pergunta)
-    ano_match = re.search(r"\b(20\d{2})\b", t)
+    if not gemini_client:
+        return "Erro: A chave 'GEMINI_API_KEY' não foi configurada no arquivo secrets.toml."
 
-    comparar = any(
-        palavra in t for palavra in [
-            "comparar", "comparativo", "compare", "comparacao",
-            "diferenca", "qual tipo", "maior quantidade", "qual categoria"
-        ]
-    )
+    resumo_dados = dados.to_markdown(index=False)
 
-    if ano_match and comparar:
-        ano = int(ano_match.group(1))
-        pedido = contar_ano(dados, COL_ANO_PEDIDO, ano)
-        compulsoria = contar_ano(dados, COL_ANO_COMPULSORIA, ano)
-        diferenca = abs(pedido - compulsoria)
+    prompt_sistema = f"""
+    Você é um assistente virtual especialista em análise de efetivo e previsões de reserva militar.
+    Você está integrado a um painel do Streamlit.
+    Abaixo estão os dados atuais da planilha, que já respeitam os filtros de posto/graduação selecionados pelo usuário:
+    
+    {resumo_dados}
+    
+    Instruções:
+    - Responda à pergunta do usuário utilizando exclusivamente os dados fornecidos acima.
+    - Seja claro, objetivo e profissional.
+    - Se a informação solicitada não estiver presente nos dados, informe educadamente que não encontrou o registro.
+    """
 
-        if pedido > compulsoria:
-            maior = "Reserva a pedido"
-        elif compulsoria > pedido:
-            maior = "Reserva compulsória"
-        else:
-            maior = "As duas categorias têm a mesma quantidade"
-
-        return (
-            f"Comparativo de reservas em {ano}\n\n"
-            f"- Reserva a pedido: {pedido}\n"
-            f"- Reserva compulsória: {compulsoria}\n"
-            f"- Diferença: {diferenca}\n"
-            f"- Resultado: {maior}.\n\n"
-            "São contagens separadas, não necessariamente servidores únicos."
+    try:
+        resposta = gemini_client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=[prompt_sistema, f"Pergunta do usuário: {pergunta}"]
         )
-
-    intervalo = re.search(r"\b(20\d{2})\s+(?:a|ate)\s+(20\d{2})\b", t)
-    if intervalo and any(p in t for p in ["tabela", "resumo", "por ano"]):
-        inicio = int(intervalo.group(1))
-        fim = int(intervalo.group(2))
-        if inicio > fim:
-            inicio, fim = fim, inicio
-
-        if fim - inicio > 50:
-            return "Consulte um intervalo de até 50 anos por vez."
-
-        linhas = []
-        for ano in range(inicio, fim + 1):
-            pedido = contar_ano(dados, COL_ANO_PEDIDO, ano)
-            compulsoria = contar_ano(dados, COL_ANO_COMPULSORIA, ano)
-            linhas.append({
-                "Ano": ano,
-                "Reserva a pedido": pedido,
-                "Reserva compulsória": compulsoria,
-                "Diferença": abs(pedido - compulsoria),
-            })
-        tabela = pd.DataFrame(linhas)
-        return tabela.to_markdown(index=False)
-
-    prazo = re.search(r"\b(\d+)\s*dias?\b", t)
-    if prazo and any(p in t for p in ["reserva", "proximos", "quantos", "quantas", "servidores"]):
-        limite = int(prazo.group(1))
-        if any(p in t for p in ["a pedido", "requerimento"]):
-            coluna = COL_DIAS_PEDIDO
-            descricao = "reserva a pedido"
-        else:
-            coluna = COL_DIAS_COMPULSORIA
-            descricao = "reserva compulsória"
-
-        quantidade = contar_prazo(dados, coluna, limite)
-        return f"Registros de {descricao} previstos nos próximos {limite} dias: {quantidade}."
-
-    if ano_match and any(p in t for p in ["reserva", "quantos", "quantas", "previstos"]):
-        ano = int(ano_match.group(1))
-        if any(p in t for p in ["a pedido", "requerimento"]):
-            coluna = COL_ANO_PEDIDO
-            descricao = "reserva a pedido"
-        else:
-            coluna = COL_ANO_COMPULSORIA
-            descricao = "reserva compulsória"
-
-        quantidade = contar_ano(dados, coluna, ano)
-        return f"Registros de {descricao} previstos para {ano}: {quantidade}."
-
-    if "por posto" in t or "por graduacao" in t:
-        if COL_POSTO not in dados.columns:
-            return "A coluna de posto/graduação não foi encontrada."
-        contagem = dados[COL_POSTO].fillna("Não informado").value_counts()
-        return "\n".join(f"- {cat}: {qtd}" for cat, qtd in contagem.items())
-
-    if any(p in t for p in ["total de registros", "quantos registros", "quantos servidores", "total de servidores"]):
-        return f"Total de registros no conjunto filtrado: {len(dados)}."
-
-    if "media" in t and "dias" in t:
-        if any(p in t for p in ["a pedido", "requerimento"]):
-            coluna = COL_DIAS_PEDIDO
-            descricao = "reserva a pedido"
-        else:
-            coluna = COL_DIAS_COMPULSORIA
-            descricao = "reserva compulsória"
-
-        if coluna not in dados.columns:
-            return f"A coluna '{coluna}' não foi encontrada."
-
-        dias = dados[coluna].apply(extrair_dias).dropna()
-        if dias.empty:
-            return "Não existem dados suficientes para calcular a média."
-        return f"Média de dias restantes para {descricao}: {dias.mean():.1f} dias."
-
-    if any(p in t for p in ["vazios", "vazias", "em branco"]):
-        if "matricula" in t:
-            coluna = COL_MATRICULA
-        elif "nome" in t:
-            coluna = COL_NOME
-        else:
-            return "Informe qual campo deseja verificar."
-
-        if coluna not in dados.columns:
-            return f"A coluna '{coluna}' não foi encontrada."
-
-        vazios = dados[coluna].isna() | dados[coluna].astype(str).str.strip().eq("")
-        return f"Quantidade de campos vazios em '{coluna}': {int(vazios.sum())}."
-
-    if "matricula" in t and any(p in t for p in ["duplicadas", "duplicados", "repetidas", "repetidos"]):
-        if COL_MATRICULA not in dados.columns:
-            return "A coluna Matrícula não foi encontrada."
-        matriculas = dados[COL_MATRICULA].dropna().astype(str).str.strip()
-        matriculas = matriculas[matriculas != ""]
-        quantidade = int(matriculas.duplicated().sum())
-        return f"Quantidade de matrículas repetidas além da primeira ocorrência: {quantidade}. Nenhuma matrícula foi exibida."
-
-    return "Não consegui interpretar essa pergunta. Tente perguntar sobre prazos, anos, comparativos, total de registros ou distribuição por posto/graduação."
+        return resposta.text
+    except Exception as e:
+        return f"Ocorreu um erro ao consultar o Gemini: {str(e)}"
 
 
-st.subheader("💬 Chatbot de consulta")
-st.write("Faça perguntas sobre os dados agregados. O chatbot considera os filtros de posto/graduação selecionados.")
+st.subheader("💬 Chatbot de consulta com Gemini")
+st.write("Faça perguntas livres sobre os dados. O chatbot considera automaticamente os filtros da barra lateral.")
 
 if "historico_chat" not in st.session_state:
     st.session_state.historico_chat = []
@@ -531,7 +406,7 @@ for mensagem in st.session_state.historico_chat:
     with st.chat_message(mensagem["role"]):
         st.markdown(mensagem["content"])
 
-pergunta = st.chat_input("Ex.: Compare as reservas em 2027")
+pergunta = st.chat_input("Ex.: Quantos registros temos para o ano de 2027?")
 
 if pergunta:
     st.session_state.historico_chat.append({"role": "user", "content": pergunta})
@@ -551,4 +426,4 @@ if pergunta:
 # =========================================================
 
 st.divider()
-st.caption("Dashboard de Efetivo | Consultas agregadas | Dados atualizados conforme a leitura da planilha.")
+st.caption("Dashboard de Efetivo | Consultas inteligentes via Gemini | Dados atualizados conforme a leitura da planilha.")
