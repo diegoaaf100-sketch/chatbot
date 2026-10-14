@@ -22,61 +22,51 @@ st.set_page_config(
 # CONTROLE DE ACESSO POR E-MAIL
 # =========================================================
 
-# Exigir login com Google
-if not st.user.is_logged_in:
+# Tenta verificar se o login está disponível (Streamlit Cloud)
+try:
+    is_logged_in = st.user.is_logged_in
+    email_usuario = str(st.user.get("email", "")).strip().lower()
+except Exception:
+    # Se falhar (rodando localmente), define um usuário simulado para testes
+    is_logged_in = True
+    email_usuario = "desenvolvedor@local.com"
+
+# Exigir login com Google (Apenas se estiver na nuvem e não logado)
+if not is_logged_in:
     st.title("📊 Dashboard de Efetivo")
-    st.write(
-        "Entre com sua conta Google autorizada para continuar."
-    )
+    st.write("Entre com sua conta Google autorizada para continuar.")
 
     st.button(
         "Entrar com Google",
         on_click=st.login,
-        width="stretch",
+        use_container_width=True,
     )
-
     st.stop()
 
-# Conferir a lista de e-mails autorizados
-emails_autorizados = {
-    str(email).strip().lower()
-    for email in st.secrets["acesso"]["emails_autorizados"]
-    if str(email).strip()
-}
+# Conferir a lista de e-mails autorizados (Com tratamento caso a chave não exista no secrets)
+try:
+    emails_autorizados = {
+        str(email).strip().lower()
+        for email in st.secrets["acesso"]["emails_autorizados"]
+        if str(email).strip()
+    }
+except Exception:
+    emails_autorizados = set()
 
-# Identificar o usuário conectado
-email_usuario = str(
-    st.user.get("email", "")
-).strip().lower()
+# Se estiver rodando localmente, podemos liberar o acesso para facilitar os testes,
+# ou você pode manter a trava restrita.
+modo_local = email_usuario == "desenvolvedor@local.com"
 
-# Bloquear usuários não autorizados
-if (
-    not email_usuario
-    or email_usuario not in emails_autorizados
-):
+# Bloquear usuários não autorizados (ignora o bloqueio se for o ambiente local de testes)
+if not modo_local and (not email_usuario or email_usuario not in emails_autorizados):
     st.title("📊 Dashboard de Efetivo")
-
-    st.error(
-        "Acesso restrito. "
-        "Esta conta Google não está autorizada."
-    )
-
-    st.button(
-        "Sair da conta",
-        on_click=st.logout,
-    )
-
+    st.error("Acesso restrito. Esta conta Google não está autorizada.")
+    st.button("Sair da conta", on_click=st.logout)
     st.stop()
 
 # Usuário autorizado
-st.sidebar.success(
-    f"Conectado: {email_usuario}"
-)
-
-st.sidebar.button(
-    "Sair da conta",
-    on_click=st.logout,
-)
+st.sidebar.success(f"Conectado: {email_usuario}")
+st.sidebar.button("Sair da conta", on_click=st.logout)
 
 # =========================================================
 # APARÊNCIA
