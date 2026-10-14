@@ -1,0 +1,7 @@
+
+streamlit
+pandas
+gspread
+plotly
+google-auth
+tabulate
