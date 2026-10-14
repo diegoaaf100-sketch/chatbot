@@ -7,6 +7,26 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
+# Exigir login com Google
+if not st.user.is_logged_in:
+    st.button("Entrar com Google", on_click=st.login)
+    st.stop()
+
+# Conferir a lista de e-mails autorizados
+emails_autorizados = {
+    email.strip().lower()
+    for email in st.secrets["acesso"]["emails_autorizados"]
+}
+
+email_usuario = str(st.user.get("email", "")).strip().lower()
+
+if email_usuario not in emails_autorizados:
+    st.error("Acesso restrito. Seu e-mail não está autorizado.")
+    st.button("Sair", on_click=st.logout)
+    st.stop()
+
+# Somente a partir daqui carregue os dados
+st.button("Sair da conta", on_click=st.logout)
 
 # =========================================================
 # CONFIGURAÇÃO DA PÁGINA
