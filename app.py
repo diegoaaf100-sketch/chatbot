@@ -367,12 +367,12 @@ except Exception:
     gemini_client = None
 
 
+import time
+
 def responder_chatbot(pergunta, dados):
     if not gemini_client:
         return "Erro: A chave 'GEMINI_API_KEY' não foi configurada no arquivo secrets.toml."
 
-    # Se a tabela for muito grande, pegamos apenas as colunas principais e limitamos as linhas 
-    # para evitar estourar o limite de tokens do plano gratuito.
     colunas_uteis = [
         col for col in [
             COL_POSTO, COL_MATRICULA, COL_NOME, 
@@ -381,7 +381,7 @@ def responder_chatbot(pergunta, dados):
         ] if col in dados.columns
     ]
     
-    dados_compactos = dados[colunas_uteis].head(200) # Limita aos primeiros 200 registros mais relevantes
+    dados_compactos = dados[colunas_uteis].head(200)
     resumo_dados = dados_compactos.to_markdown(index=False)
 
     prompt_sistema = f"""
@@ -397,16 +397,26 @@ def responder_chatbot(pergunta, dados):
     - Se a informação solicitada não estiver presente nos dados, informe educadamente que não encontrou o registro.
     """
 
-    try:
-        resposta = gemini_client.models.generate_content(
-            model="gemini-3.8-flash",
-            contents=[prompt_sistema, f"Pergunta do usuário: {pergunta}"]
-        )
-        return resposta.text
-    except Exception as e:
-        if "429" in str(e):
-            return "O limite de requisições gratuitas foi atingido temporariamente. Aguarde alguns segundos e tente novamente."
-        return f"Ocorreu um erro ao consultar o Gemini: {str(e)}"
+    # Tenta realizar a chamada até 2 vezes caso ocorra instabilidade (503)
+    tentativas = 2
+    for tentativa in range(tentativas):
+        try:
+            resposta = gemini_client.models.generate_content(
+                model="gemini-3.8-flash",
+                contents=[prompt_sistema, f"Pergunta do usuário: {pergunta}"]
+            )
+            return resposta.text
+        except Exception as e:
+            erro_str = str(e)
+            # Se for erro de alta demanda (503) e ainda houver tentativas, aguarda 2 segundos e tenta de novo
+            if "503" in erro_str and tentativa < tentativas - 1:
+                time.sleep(2)
+                continue
+            elif "429" in erro_str:
+                return "O limite de requisições gratuitas foi atingido temporariamente. Aguarde alguns segundos e tente novamente."
+            elif "503" in erro_str:
+                return "O servidor do Gemini está temporariamente com alta demanda. Por favor, tente enviar a mensagem novamente em instantes."
+            return f"Ocorreu um erro ao consultar o Gemini: {erro_str}"
 
 
 st.subheader("💬 Chatbot de consulta com Gemini")
