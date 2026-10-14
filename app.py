@@ -371,12 +371,23 @@ def responder_chatbot(pergunta, dados):
     if not gemini_client:
         return "Erro: A chave 'GEMINI_API_KEY' não foi configurada no arquivo secrets.toml."
 
-    resumo_dados = dados.to_markdown(index=False)
+    # Se a tabela for muito grande, pegamos apenas as colunas principais e limitamos as linhas 
+    # para evitar estourar o limite de tokens do plano gratuito.
+    colunas_uteis = [
+        col for col in [
+            COL_POSTO, COL_MATRICULA, COL_NOME, 
+            COL_ANO_PEDIDO, COL_ANO_COMPULSORIA, 
+            COL_DIAS_PEDIDO, COL_DIAS_COMPULSORIA
+        ] if col in dados.columns
+    ]
+    
+    dados_compactos = dados[colunas_uteis].head(200) # Limita aos primeiros 200 registros mais relevantes
+    resumo_dados = dados_compactos.to_markdown(index=False)
 
     prompt_sistema = f"""
     Você é um assistente virtual especialista em análise de efetivo e previsões de reserva militar.
     Você está integrado a um painel do Streamlit.
-    Abaixo estão os dados atuais da planilha, que já respeitam os filtros de posto/graduação selecionados pelo usuário:
+    Abaixo estão os dados atuais da planilha (respeitando os filtros da barra lateral):
     
     {resumo_dados}
     
@@ -393,6 +404,8 @@ def responder_chatbot(pergunta, dados):
         )
         return resposta.text
     except Exception as e:
+        if "429" in str(e):
+            return "O limite de requisições gratuitas foi atingido temporariamente. Aguarde alguns segundos e tente novamente."
         return f"Ocorreu um erro ao consultar o Gemini: {str(e)}"
 
 
