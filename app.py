@@ -1062,4 +1062,4 @@ st.caption(
     "Dashboard de Efetivo | Consultas agregadas | "
     "Dados atualizados conforme a leitura da planilha."
 )
-```
+
