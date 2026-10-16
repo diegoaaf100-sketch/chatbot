@@ -2,7 +2,7 @@ import os
 import time
 import pandas as pd
 import streamlit as st
-from google import genai
+import google.generativeai as genai
 
 # =========================================================
 # FUNÇÕES DE APOIO E RESUMO
@@ -98,14 +98,15 @@ def resumo_agregado_para_chat(dados: pd.DataFrame) -> dict:
 
 
 # =========================================================
-# CONFIGURAÇÃO DO CLIENTE GEMINI
+# CONFIGURAÇÃO DO GEMINI (BIBLIOTECA CLÁSSICA)
 # =========================================================
 api_key = st.secrets.get("GEMINI_API_KEY") or os.environ.get("GEMINI_API_KEY")
-gemini_client = genai.Client(api_key=api_key) if api_key else None
+if api_key:
+    genai.configure(api_key=api_key)
 
 
 def responder_chatbot(pergunta: str, dados: pd.DataFrame) -> str:
-    if not gemini_client:
+    if not api_key:
         return (
             "O chatbot inteligente não está configurado. Confira se a chave "
             "GEMINI_API_KEY está definida nos Secrets do Streamlit Cloud."
@@ -126,43 +127,23 @@ individuais nem identificadores pessoais.
 Resumo agregado do painel:
 {resumo}
 """
-    
-    # Modelos testados em ordem para evitar erros 404
-    modelos_para_tentar = [
-        "gemini-2.5-flash",
-        "gemini-2.0-flash",
-        "gemini-1.5-flash",
-    ]
 
-    ultimo_erro = ""
-
-    for modelo in modelos_para_tentar:
-        for tentativa in range(2):
-            try:
-                resposta = gemini_client.models.generate_content(
-                    model=modelo,
-                    contents=[prompt_sistema, f"Pergunta do usuário: {pergunta}"],
-                )
-                texto_resposta = getattr(resposta, "text", None)
-                if texto_resposta:
-                    return texto_resposta
-                return "O Gemini não retornou uma resposta textual."
-            except Exception as erro:
-                erro_texto = str(erro)
-                ultimo_erro = erro_texto
-                
-                if "404" in erro_texto or "NOT_FOUND" in erro_texto.upper():
-                    break
-                
-                if ("503" in erro_texto or "UNAVAILABLE" in erro_texto.upper()) and tentativa == 0:
-                    time.sleep(2)
-                    continue
-                if "429" in erro_texto or "RESOURCE_EXHAUSTED" in erro_texto.upper():
-                    return "O limite de requisições do Gemini foi atingido. Aguarde um pouco e tente novamente."
-                if "503" in erro_texto or "UNAVAILABLE" in erro_texto.upper():
-                    return "O serviço do Gemini está temporariamente indisponível. Tente novamente em instantes."
-
-    return f"Não foi possível consultar o Gemini. Erro: {ultimo_erro}"
+    for tentativa in range(2):
+        try:
+            model = genai.GenerativeModel("gemini-1.5-flash")
+            resposta = model.generate_content([prompt_sistema, f"Pergunta do usuário: {pergunta}"])
+            texto_resposta = getattr(resposta, "text", None)
+            return texto_resposta or "O Gemini não retornou uma resposta textual."
+        except Exception as erro:
+            erro_texto = str(erro)
+            if ("503" in erro_texto or "UNAVAILABLE" in erro_texto.upper()) and tentativa == 0:
+                time.sleep(2)
+                continue
+            if "429" in erro_texto or "RESOURCE_EXHAUSTED" in erro_texto.upper():
+                return "O limite de requisições do Gemini foi atingido. Aguarde um pouco e tente novamente."
+            if "503" in erro_texto or "UNAVAILABLE" in erro_texto.upper():
+                return "O serviço do Gemini está temporariamente indisponível. Tente novamente em instantes."
+            return f"Erro técnico retornado: {erro_texto}"
 
 
 # =========================================================
