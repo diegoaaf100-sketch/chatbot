@@ -4,7 +4,7 @@ import pandas as pd
 import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
-import google.generativeai as genai
+from google import genai
 
 # Configuração da página do Streamlit
 st.set_page_config(page_title="Painel de Gestão de Efetivo", page_icon="🛡️", layout="wide")
@@ -12,7 +12,7 @@ st.set_page_config(page_title="Painel de Gestão de Efetivo", page_icon="🛡️
 # Lista exata das abas fornecidas
 ABAS_VALIDAS = [
     "1°GB", "2°GB", "3°GB", "4°GB", "5°GB", "6°GB", "7°GB", "9°GB", 
-    "ABGM", "AECI", "AJG", "CAT AGRESTE", "CAT SERTÃO", "CAT ZONA DA MATA",
+    "AGBM", "AECI", "AJG", "CAT AGRESTE", "CAT SERTÃO", "CAT ZONA DA MATA",
     "CAT/RMR", "CCS", "CEAO", "CEFD", "CI", "CINT", "CMAN", "CPO/CPP", 
     "CPPA", "DAS", "DEIP", "DF", "DGO", "DGP", "ADIDO", "DIESP", "DIM", 
     "DINTER/1", "DINTER/2", "DJD", "DLOG", "DPLAG", "DTIC", "DVP", 
@@ -43,7 +43,6 @@ def carregar_aba(nome_aba: str) -> pd.DataFrame:
         worksheets = sh.worksheets()
         ws_alvo = None
         
-        # Procura a aba de forma flexível (ignorando variações de ° e º ou maiúsculas)
         for ws in worksheets:
             titulo_limpo = ws.title.strip().lower().replace("º", "°")
             alvo_limpo = nome_aba.strip().lower().replace("º", "°")
@@ -52,36 +51,25 @@ def carregar_aba(nome_aba: str) -> pd.DataFrame:
                 break
                 
         if ws_alvo:
-            # Obtém todos os valores da aba
             todos_valores = ws_alvo.get_all_values()
             
             if len(todos_valores) < 2:
                 return pd.DataFrame()
                 
-            # Garante que cada célula seja convertida para string pura (evitando o erro de AttrDict)
-            dados_limpos = [[str(celula) if celula is not None else "" for celula in linha] for linha in todos_valores]
-            
-            # A linha 2 (índice 1) é o cabeçalho
+            dados_limpos = [[str(cel) if cel is not None else "" for cel in linha] for linha in todos_valores]
             cabecalho = [c.strip() for c in dados_limpos[1]]
-            
-            # Da linha 3 em diante (índice 2) são os dados
             linhas_dados = dados_limpos[2:]
             
-            # Ajusta o tamanho das linhas para bater com o número de colunas do cabeçalho
             num_colunas = len(cabecalho)
             linhas_ajustadas = []
             for linha in linhas_dados:
-                # Preenche ou corta a linha para ter exatamente o tamanho do cabeçalho
                 if len(linha) < num_colunas:
                     linha.extend([""] * (num_colunas - len(linha)))
                 else:
                     linha = linha[:num_colunas]
                 linhas_ajustadas.append(linha)
             
-            # Cria o DataFrame do Pandas
             df = pd.DataFrame(linhas_ajustadas, columns=cabecalho)
-            
-            # Remove linhas e colunas vazias
             df = df.dropna(how="all")
             df = df.loc[:, df.columns != ""]
             
@@ -91,12 +79,12 @@ def carregar_aba(nome_aba: str) -> pd.DataFrame:
     except Exception as e:
         st.error(f"Erro ao processar os dados da aba {nome_aba}: {e}")
         return pd.DataFrame()
+
 # =========================================================
-# 2. CONFIGURAÇÃO DO GEMINI
+# 2. CONFIGURAÇÃO DO GEMINI (SDK MODERNO)
 # =========================================================
 api_key = st.secrets.get("GEMINI_API_KEY")
-if api_key:
-    genai.configure(api_key=api_key)
+gemini_client = genai.Client(api_key=api_key) if api_key else None
 
 def resumo_para_ia(df: pd.DataFrame) -> dict:
     """Gera um resumo estatístico e agregado dos dados para proteger a privacidade"""
@@ -109,7 +97,7 @@ def resumo_para_ia(df: pd.DataFrame) -> dict:
     }
 
 def responder_chatbot(pergunta: str, dados: pd.DataFrame) -> str:
-    if not api_key:
+    if not gemini_client:
         return "A chave GEMINI_API_KEY não está configurada nos Secrets."
 
     resumo = resumo_para_ia(dados)
@@ -123,12 +111,22 @@ Resumo agregado da unidade/aba selecionada:
 {resumo}
 """
 
-    try:
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        resposta = model.generate_content([prompt_sistema, f"Pergunta: {pergunta}"])
-        return resposta.text or "O Gemini não retornou uma resposta textual."
-    except Exception as e:
-        return f"Erro ao consultar o Gemini: {e}"
+    modelos_para_tentar = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+    ultimo_erro = ""
+
+    for modelo in modelos_para_tentar:
+        try:
+            resposta = gemini_client.models.generate_content(
+                model=modelo,
+                contents=[prompt_sistema, f"Pergunta: {pergunta}"],
+            )
+            if resposta and resposta.text:
+                return resposta.text
+        except Exception as e:
+            ultimo_erro = str(e)
+            continue
+
+    return f"Não foi possível consultar o Gemini. Detalhe: {ultimo_erro}"
 
 # =========================================================
 # 3. INTERFACE DO DASHBOARD NO STREAMLIT
@@ -136,16 +134,13 @@ Resumo agregado da unidade/aba selecionada:
 st.title("🛡️ Painel de Gestão e Relatórios de Efetivo")
 
 st.sidebar.header("🗂️ Seleção de Unidade / Seção")
-# Filtra apenas as abas válidas que existem na planilha do usuário
 aba_selecionada = st.sidebar.selectbox("Selecione a OME / Unidade:", ABAS_VALIDAS)
 
-# Carrega os dados da aba escolhida
 df = carregar_aba(aba_selecionada)
 
 if not df.empty:
     st.subheader(f"Efetivo da Unidade: {aba_selecionada}")
     
-    # Métricas rápidas no topo
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.metric("Total de Militares", len(df))
@@ -161,31 +156,26 @@ if not df.empty:
 
     st.divider()
 
-    # Filtros na barra lateral baseados nas colunas do cabeçalho
     st.sidebar.divider()
     st.sidebar.header("🔍 Filtros de Consulta")
     
     df_filtrado = df.copy()
 
-    # Filtro por Posto / Graduação se a coluna existir
     if "Posto / Graduação" in df.columns:
         postos = ["Todos"] + list(df["Posto / Graduação"].dropna().unique())
         filtro_posto = st.sidebar.selectbox("Filtrar por Posto / Graduação:", postos)
         if filtro_posto != "Todos":
             df_filtrado = df_filtrado[df_filtrado["Posto / Graduação"] == filtro_posto]
 
-    # Filtro por Quadro se a coluna existir
     if "Quadro" in df.columns:
         quadros = ["Todos"] + list(df["Quadro"].dropna().unique())
         filtro_quadro = st.sidebar.selectbox("Filtrar por Quadro:", quadros)
         if filtro_quadro != "Todos":
             df_filtrado = df_filtrado[df_filtrado["Quadro"] == filtro_quadro]
 
-    # Exibição da tabela principal limpa e interativa
     st.markdown(f"### Registros ({len(df_filtrado)} encontrados)")
     st.dataframe(df_filtrado, use_container_width=True)
 
-    # Botão para download dos dados filtrados em CSV para relatórios
     csv = df_filtrado.to_csv(index=False).encode('utf-8')
     st.download_button(
         label="📥 Baixar Relatório em CSV desta Unidade",
@@ -195,7 +185,7 @@ if not df.empty:
     )
 
     # =========================================================
-    # 4. CHATBOT GEMINI INTEGRADO (COM DADOS AGREGADOS)
+    # 4. CHATBOT GEMINI INTEGRADO
     # =========================================================
     st.divider()
     st.subheader("💬 Chatbot de Consulta Inteligente (Gemini)")
@@ -217,8 +207,7 @@ if not df.empty:
         st.rerun()
 
 else:
-    st.warning(f"Não foi possível carregar os dados da aba **{aba_selecionada}**. Verifique se a aba existe exatamente com esse nome na planilha privada e se a Conta de Serviço tem permissão de leitura.")
+    st.warning(f"Não foi possível carregar os dados da aba **{aba_selecionada}**. Verifique se a aba existe na planilha privada e se a Conta de Serviço tem permissão de leitura.")
 
-# Rodapé
 st.divider()
 st.caption("Painel de Efetivo • Desenvolvido com Streamlit e Google Sheets API")
