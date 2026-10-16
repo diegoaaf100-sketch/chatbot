@@ -45,13 +45,12 @@ def conectar_google_sheets():
 
 @st.cache_data(ttl=600)
 def carregar_aba(nome_aba: str) -> pd.DataFrame:
-    """Carrega uma aba específica da planilha privada de forma totalmente flexível a acentos"""
+    """Carrega uma aba e exibe o erro técnico exato caso ocorra falha"""
     try:
         sh = conectar_google_sheets()
         worksheets = sh.worksheets()
         ws_alvo = None
         
-        # Normaliza o nome buscado (remove acentos, espaços e padroniza maiúsculas)
         import unicodedata
         def normalizar(texto):
             return ''.join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn').strip().lower().replace("º", "°")
@@ -67,7 +66,8 @@ def carregar_aba(nome_aba: str) -> pd.DataFrame:
             matriz = ws_alvo.get_all_values()
             
             if len(matriz) < 2:
-                return pd.DataFrame() # Aba vazia
+                st.warning(f"A aba '{nome_aba}' possui menos de 2 linhas (sem cabeçalho na linha 2).")
+                return pd.DataFrame()
                 
             cabecalho = [str(c).strip() for c in matriz[1]]
             linhas = matriz[2:]
@@ -86,12 +86,13 @@ def carregar_aba(nome_aba: str) -> pd.DataFrame:
                 
             return df
         else:
-            st.warning(f"A aba '{nome_aba}' não foi encontrada na planilha.")
+            abas_existentes = [ws.title for ws in worksheets]
+            st.error(f"A aba '{nome_aba}' não foi encontrada na planilha. Abas disponíveis no arquivo: {abas_existentes}")
             return pd.DataFrame()
     except Exception as e:
-        st.error(f"Erro ao processar os dados da aba {nome_aba}: {e}")
+        # Exibe o erro técnico exato na tela para sabermos o motivo exato
+        st.error(f"ERRO TÉCNICO na aba {nome_aba}: {str(e)}")
         return pd.DataFrame()
-
 # =========================================================
 # 2. CONFIGURAÇÃO DO GEMINI (SDK MODERNO)
 # =========================================================
