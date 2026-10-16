@@ -112,7 +112,7 @@ def resumo_para_ia(df: pd.DataFrame) -> dict:
 
 def responder_chatbot(pergunta: str, dados: pd.DataFrame) -> str:
     if not gemini_client:
-        return "A chave GEMINI_API_KEY não está configurada nos Secrets."
+        return "A chave GEMINI_API_KEY não está configurada nos Secrets do Streamlit."
 
     resumo = resumo_para_ia(dados)
     prompt_sistema = f"""
@@ -121,22 +121,28 @@ Responda em português brasileiro de forma clara, estritamente objetiva e formal
 Use exclusivamente os indicadores agregados fornecidos abaixo. Não invente dados.
 Nunca solicite nem tente inferir nomes, matrículas, e-mails, telefones ou detalhes pessoais individuais.
 
-Resumo agregado dos dados selecionados:
+Resumo agregado dos dados selecionados atualmente:
 {resumo}
 """
 
+    # Modelos recomendados atualizados para o SDK moderno google-genai
     modelos_para_tentar = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+    
     for modelo in modelos_para_tentar:
         try:
             resposta = gemini_client.models.generate_content(
                 model=modelo,
-                contents=[prompt_sistema, f"Pergunta: {pergunta}"],
+                contents=[
+                    {"role": "user", "parts": [{"text": prompt_sistema}, {"text": f"Pergunta do usuário: {pergunta}"}]}
+                ]
             )
             if resposta and resposta.text:
                 return resposta.text
-        except Exception:
+        except Exception as e:
+            # Tenta o próximo modelo em caso de falha/indisponibilidade pontual
             continue
-    return "Não foi possível consultar o Gemini no momento."
+            
+    return "Desculpe, não foi possível obter uma resposta do Gemini no momento. Verifique se a chave da API está correta nos Secrets."
 
 # =========================================================
 # 3. INTERFACE DO DASHBOARD NO STREAMLIT
@@ -165,7 +171,7 @@ else:
 
 if not df.empty:
     # =========================================================
-    # FILTROS DINÂMICOS PARA CADA COLUNA NA BARRA LATERAL (NO TOPO)
+    # FILTROS DINÂMICOS PARA CADA COLUNA NA BARRA LATERAL
     # =========================================================
     st.sidebar.divider()
     st.sidebar.header("🔍 Filtros por Coluna")
