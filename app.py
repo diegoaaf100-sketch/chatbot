@@ -122,27 +122,23 @@ Assistente analítico de efetivo militar. Responda em português de forma formal
 Pergunta: {pergunta}
 """
 
-    try:
-        # Utiliza diretamente o modelo padrão recomendado para testes rápidos
-        resposta = gemini_client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt_completo
-        )
-        if resposta and resposta.text:
-            return resposta.text
-    except Exception as e:
+    # Modelos atualizados conforme o aviso técnico da API do Google
+    modelos_para_tentar = ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+    
+    ultimo_erro = ""
+    for modelo in modelos_para_tentar:
         try:
-            # Fallback para o modelo 2.0 caso o 2.5 não esteja liberado na conta
             resposta = gemini_client.models.generate_content(
-                model="gemini-2.0-flash",
+                model=modelo,
                 contents=prompt_completo
             )
             if resposta and resposta.text:
                 return resposta.text
-        except Exception as e2:
-            return f"⚠️ Erro técnico na API do Gemini: {str(e2)}"
+        except Exception as e:
+            ultimo_erro = str(e)
+            continue
             
-    return "⚠️ O Gemini retornou uma resposta vazia."
+    return f"⚠️ Erro técnico na API do Gemini: {ultimo_erro}"
 
 # =========================================================
 # 3. INTERFACE DO DASHBOARD NO STREAMLIT
