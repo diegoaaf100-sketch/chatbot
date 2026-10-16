@@ -115,7 +115,8 @@ def responder_chatbot(pergunta: str, dados: pd.DataFrame) -> str:
         return "A chave GEMINI_API_KEY não está configurada nos Secrets do Streamlit."
 
     resumo = resumo_para_ia(dados)
-    prompt_sistema = f"""
+    prompt_completo = f"""
+[INSTRUÇÕES DO SISTEMA]
 Você é um assistente analítico de efetivo militar integrado a um dashboard Streamlit.
 Responda em português brasileiro de forma clara, estritamente objetiva e formal.
 Use exclusivamente os indicadores agregados fornecidos abaixo. Não invente dados.
@@ -123,6 +124,9 @@ Nunca solicite nem tente inferir nomes, matrículas, e-mails, telefones ou detal
 
 Resumo agregado dos dados selecionados atualmente:
 {resumo}
+
+[PERGUNTA DO USUÁRIO]
+{pergunta}
 """
 
     modelos_para_tentar = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
@@ -131,17 +135,15 @@ Resumo agregado dos dados selecionados atualmente:
         try:
             resposta = gemini_client.models.generate_content(
                 model=modelo,
-                contents=pergunta,
-                config={
-                    "system_instruction": prompt_sistema,
-                }
+                contents=prompt_completo
             )
             if resposta and resposta.text:
                 return resposta.text
-        except Exception as e:
+        except Exception:
             continue
             
     return "Desculpe, não foi possível obter uma resposta do Gemini no momento. Verifique se a chave da API está correta nos Secrets."
+
 # =========================================================
 # 3. INTERFACE DO DASHBOARD NO STREAMLIT
 # =========================================================
