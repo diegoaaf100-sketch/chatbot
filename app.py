@@ -16,8 +16,8 @@ def verificar_senha():
     """Retorna True se o usuário inseriu a senha correta."""
     
     def senha_inserida():
-        usuario = st.session_state["username"]
-        senha = st.session_state["password"]
+        usuario = st.session_state["admin"]
+        senha = st.session_state["dgp"]
         
         senhas_cadastradas = st.secrets.get("passwords", {})
         
