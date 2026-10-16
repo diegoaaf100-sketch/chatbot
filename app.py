@@ -44,7 +44,7 @@ def conectar_google_sheets():
 
 @st.cache_data(ttl=600)
 def carregar_aba(nome_aba: str) -> pd.DataFrame:
-    """Carrega uma aba específica da planilha privada garantindo o cabeçalho na linha 2"""
+    """Carrega uma aba específica, renomeia a coluna de matrícula e garante o cabeçalho na linha 2"""
     try:
         sh = conectar_google_sheets()
         worksheets = sh.worksheets()
@@ -81,12 +81,19 @@ def carregar_aba(nome_aba: str) -> pd.DataFrame:
             if "" in df.columns:
                 df = df.drop(columns=[""])
                 
+            # RENOMEIA A COLUNA DE MATRÍCULA PARA O NOME LIMPO
+            novos_nomes = {}
+            for col in df.columns:
+                if col.lower().startswith("matrícula") or col.lower().startswith("matricula"):
+                    novos_nomes[col] = "Matrícula"
+            if novos_nomes:
+                df = df.rename(columns=novos_nomes)
+                
             return df
         else:
             return pd.DataFrame()
     except Exception as e:
         return pd.DataFrame()
-
 # =========================================================
 # 2. CONFIGURAÇÃO DO GEMINI
 # =========================================================
