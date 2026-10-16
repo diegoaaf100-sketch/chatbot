@@ -2,4 +2,4 @@ streamlit
 pandas
 gspread
 google-auth
-google-genai
+google-genai>=1.0.0
