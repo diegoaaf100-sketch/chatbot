@@ -44,7 +44,7 @@ def conectar_google_sheets():
 
 @st.cache_data(ttl=600)
 def carregar_aba(nome_aba: str) -> pd.DataFrame:
-    """Carrega uma aba específica, renomeia a coluna de matrícula e garante o cabeçalho na linha 2"""
+    """Carrega uma aba específica, limpa o nome da coluna de matrícula e garante o cabeçalho na linha 2"""
     try:
         sh = conectar_google_sheets()
         worksheets = sh.worksheets()
@@ -81,7 +81,7 @@ def carregar_aba(nome_aba: str) -> pd.DataFrame:
             if "" in df.columns:
                 df = df.drop(columns=[""])
                 
-            # RENOMEIA A COLUNA DE MATRÍCULA PARA O NOME LIMPO
+            # Renomeia a coluna de matrícula para apenas "Matrícula"
             novos_nomes = {}
             for col in df.columns:
                 if col.lower().startswith("matrícula") or col.lower().startswith("matricula"):
@@ -94,6 +94,7 @@ def carregar_aba(nome_aba: str) -> pd.DataFrame:
             return pd.DataFrame()
     except Exception as e:
         return pd.DataFrame()
+
 # =========================================================
 # 2. CONFIGURAÇÃO DO GEMINI
 # =========================================================
@@ -145,7 +146,7 @@ st.title("🛡️ Painel de Gestão e Relatórios de Efetivo")
 st.sidebar.header("🗂️ Seleção de Unidade / Seção")
 aba_selecionada = st.sidebar.selectbox("Selecione a OME / Unidade:", ABAS_VALIDAS)
 
-# Lógica para carregar aba única ou consolidar todas
+# Carregamento de dados (Aba única ou Visão Geral)
 if aba_selecionada == "🔍 VISÃO GERAL":
     lista_dfs = []
     with st.spinner("Consolidando dados de todas as unidades..."):
@@ -180,29 +181,29 @@ if not df.empty:
 
     st.divider()
 
+    # =========================================================
+    # FILTROS DINÂMICOS PARA CADA COLUNA NA BARRA LATERAL
+    # =========================================================
     st.sidebar.divider()
-    st.sidebar.header("🔍 Filtros de Consulta")
+    st.sidebar.header("🔍 Filtros por Coluna")
     
     df_filtrado = df.copy()
 
-    # Filtro adicional caso esteja na Visão Geral (para filtrar por unidade de origem)
-    if aba_selecionada == "🔍 VISÃO GERAL" and "Unidade_Origem" in df.columns:
-        unidades_disponiveis = ["Todas"] + list(df["Unidade_Origem"].dropna().unique())
-        filtro_unidade = st.sidebar.selectbox("Filtrar por Unidade de Origem:", unidades_disponiveis)
-        if filtro_unidade != "Todas":
-            df_filtrado = df_filtrado[df_filtrado["Unidade_Origem"] == filtro_unidade]
-
-    if "Posto / Graduação" in df_filtrado.columns:
-        postos = ["Todos"] + list(df_filtrado["Posto / Graduação"].dropna().unique())
-        filtro_posto = st.sidebar.selectbox("Filtrar por Posto / Graduação:", postos)
-        if filtro_posto != "Todos":
-            df_filtrado = df_filtrado[df_filtrado["Posto / Graduação"] == filtro_posto]
-
-    if "Quadro" in df_filtrado.columns:
-        quadros = ["Todos"] + list(df_filtrado["Quadro"].dropna().unique())
-        filtro_quadro = st.sidebar.selectbox("Filtrar por Quadro:", quadros)
-        if filtro_quadro != "Todos":
-            df_filtrado = df_filtrado[df_filtrado["Quadro"] == filtro_quadro]
+    for coluna in df.columns:
+        valores_unicos = df[coluna].dropna().unique()
+        
+        # Se a coluna tiver poucos valores únicos (ex: Posto, Quadro, Sim/Não), cria um multiselect
+        if len(valores_unicos) <= 25 and len(valores_unicos) > 1:
+            opcoes = sorted([str(v) for v in valores_unicos if str(v).strip() != ""])
+            if opcoes:
+                selecao = st.sidebar.multiselect(f"Filtrar {coluna}:", options=opcoes)
+                if selecao:
+                    df_filtrado = df_filtrado[df_filtrado[coluna].astype(str).isin(selecao)]
+        # Para colunas de texto livre (Matrícula, Nome, etc.), cria uma caixa de busca por texto
+        else:
+            busca = st.sidebar.text_input(f"Buscar em {coluna}:")
+            if busca:
+                df_filtrado = df_filtrado[df_filtrado[coluna].astype(str).str.lower().str.contains(busca.lower(), na=False)]
 
     st.markdown(f"### Registros ({len(df_filtrado)} encontrados)")
     st.dataframe(df_filtrado, use_container_width=True)
