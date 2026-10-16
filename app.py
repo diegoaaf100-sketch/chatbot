@@ -52,25 +52,37 @@ def carregar_aba(nome_aba: str) -> pd.DataFrame:
                 break
                 
         if ws_alvo:
-            # Obtém todos os valores da aba como uma lista de listas
+            # Obtém todos os valores da aba
             todos_valores = ws_alvo.get_all_values()
             
             if len(todos_valores) < 2:
-                return pd.DataFrame() # Aba vazia ou sem dados suficientes
+                return pd.DataFrame()
                 
-            # A linha 2 (índice 1 no Python) é o cabeçalho
-            cabecalho = [str(c).strip() for c in todos_valores[1]]
+            # Garante que cada célula seja convertida para string pura (evitando o erro de AttrDict)
+            dados_limpos = [[str(celula) if celula is not None else "" for celula in linha] for linha in todos_valores]
             
-            # Da linha 3 em diante (índice 2 em diante) são os dados
-            linhas_dados = todos_valores[2:]
+            # A linha 2 (índice 1) é o cabeçalho
+            cabecalho = [c.strip() for c in dados_limpos[1]]
             
-            # Cria o DataFrame do Pandas limpo
-            df = pd.DataFrame(linhas_dados, columns=cabecalho)
+            # Da linha 3 em diante (índice 2) são os dados
+            linhas_dados = dados_limpos[2:]
             
-            # Remove linhas que estejam totalmente vazias
+            # Ajusta o tamanho das linhas para bater com o número de colunas do cabeçalho
+            num_colunas = len(cabecalho)
+            linhas_ajustadas = []
+            for linha in linhas_dados:
+                # Preenche ou corta a linha para ter exatamente o tamanho do cabeçalho
+                if len(linha) < num_colunas:
+                    linha.extend([""] * (num_colunas - len(linha)))
+                else:
+                    linha = linha[:num_colunas]
+                linhas_ajustadas.append(linha)
+            
+            # Cria o DataFrame do Pandas
+            df = pd.DataFrame(linhas_ajustadas, columns=cabecalho)
+            
+            # Remove linhas e colunas vazias
             df = df.dropna(how="all")
-            
-            # Remove colunas cujo nome seja vazio (caso existam colunas extras no final)
             df = df.loc[:, df.columns != ""]
             
             return df
@@ -79,7 +91,6 @@ def carregar_aba(nome_aba: str) -> pd.DataFrame:
     except Exception as e:
         st.error(f"Erro ao processar os dados da aba {nome_aba}: {e}")
         return pd.DataFrame()
-
 # =========================================================
 # 2. CONFIGURAÇÃO DO GEMINI
 # =========================================================
