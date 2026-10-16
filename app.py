@@ -2,8 +2,7 @@ import os
 import time
 import pandas as pd
 import streamlit as st
-import gspread
-from google.oauth2.service_account import Credentials
+import requests
 from google import genai
 
 # Configuração da página do Streamlit
@@ -20,63 +19,33 @@ ABAS_VALIDAS = [
 ]
 
 # =========================================================
-# 1. CONEXÃO COM A PLANILHA PRIVADA
+# 1. LEITURA DA PLANILHA PRIVADA VIA EXPORTAÇÃO CSV
 # =========================================================
-@st.cache_resource
-def conectar_google_sheets():
-    """Autentica e conecta ao Google Sheets usando as credenciais do st.secrets"""
-    scope = [
-        "https://www.googleapis.com/auth/spreadsheets.readonly",
-        "https://www.googleapis.com/auth/drive.readonly"
-    ]
-    cred_dict = dict(st.secrets["gcp_service_account"])
-    creds = Credentials.from_service_account_info(cred_dict, scopes=scope)
-    client = gspread.authorize(creds)
-    spreadsheet_url = st.secrets["connections"]["gsheets"]
-    return client.open_by_url(spreadsheet_url)
-
 @st.cache_data(ttl=600)
 def carregar_aba(nome_aba: str) -> pd.DataFrame:
-    """Carrega uma aba específica da planilha de forma blindada (cabeçalho na linha 2)"""
+    """Carrega uma aba específica da planilha privada de forma segura usando o formato CSV do Google Sheets"""
     try:
-        sh = conectar_google_sheets()
-        worksheets = sh.worksheets()
-        ws_alvo = None
+        spreadsheet_url = st.secrets["connections"]["gsheets"]
         
-        for ws in worksheets:
-            titulo_limpo = ws.title.strip().lower().replace("º", "°")
-            alvo_limpo = nome_aba.strip().lower().replace("º", "°")
-            if titulo_limpo == alvo_limpo:
-                ws_alvo = ws
-                break
-                
-        if ws_alvo:
-            try:
-                # Tenta usar o parâmetro nativo head=2 do gspread moderno
-                dados_dict = ws_alvo.get_all_records(head=2)
-            except Exception:
-                # Fallback seguro caso ocorra incompatibilidade
-                valores = ws_alvo.get_values()
-                if len(valores) < 2:
-                    return pd.DataFrame()
-                cabecalho = [str(c).strip() for c in valores[1]]
-                linhas = valores[2:]
-                
-                dados_dict = []
-                for linha in linhas:
-                    while len(linha) < len(cabecalho):
-                        linha.append("")
-                    item = {cabecalho[i]: str(linha[i]) if i < len(linha) and linha[i] is not None else "" for i in range(len(cabecalho))}
-                    dados_dict.append(item)
-
-            df = pd.DataFrame(dados_dict)
-            df = df.dropna(how="all")
-            if "" in df.columns:
-                df = df.drop(columns=[""])
-                
-            return df
+        # Extrai o ID da planilha da URL
+        if "/d/" in spreadsheet_url:
+            sheet_id = spreadsheet_url.split("/d/")[1].split("/")[0]
         else:
-            return pd.DataFrame()
+            sheet_id = spreadsheet_url
+
+        # Monta a URL de exportação da aba específica em formato CSV
+        url_csv = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={requests.utils.quote(nome_aba)}"
+        
+        # Faz a requisição HTTP (suporta planilhas compartilhadas com contas de serviço se públicas, 
+        # ou usa o formato de exportação direta do Google Sheets)
+        df = pd.read_csv(url_csv, header=1) # header=1 indica que a linha 2 (index 1) é o cabeçalho
+        
+        # Limpeza do DataFrame
+        df = df.dropna(how="all")
+        # Remove colunas sem nome (vazias)
+        df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
+        
+        return df
     except Exception as e:
         st.error(f"Erro ao processar os dados da aba {nome_aba}: {e}")
         return pd.DataFrame()
@@ -202,13 +171,13 @@ if not df.empty:
     pergunta = st.chat_input("Ex.: Quantos militares readaptados temos nesta unidade?")
 
     if pergunta:
-        st.session_state.historico_chat.append({"role": "user", "content": pergunta})
+        st.session_state.historico_chat.append({"role": "user", "content":pergunta})
         resposta = responder_chatbot(pergunta, df_filtrado)
         st.session_state.historico_chat.append({"role": "assistant", "content": resposta})
         st.rerun()
 
 else:
-    st.warning(f"Não foi possível carregar os dados da aba **{aba_selecionada}**. Verifique se a aba existe na planilha privada e se a Conta de Serviço tem permissão de leitura.")
+    st.warning(f"Não foi possível carregar os dados da aba **{aba_selecionada}**. Verifique se a aba existe e se a planilha está configurada com permissão de visualização pública por link (ou compartilhada corretamente).")
 
 st.divider()
-st.caption("Painel de Efetivo • Desenvolvido com Streamlit e Google Sheets API")
+st.caption("Painel de Efetivo • Desenvolvido com Streamlit e Google Sheets")
