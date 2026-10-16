@@ -192,54 +192,7 @@ if not df.empty:
     for coluna in df.columns:
         valores_unicos = df[coluna].dropna().unique()
         
-        # Se a coluna tiver poucos valores únicos (ex: Posto, Quadro, Sim/Não), cria um multiselect
         if len(valores_unicos) <= 25 and len(valores_unicos) > 1:
             opcoes = sorted([str(v) for v in valores_unicos if str(v).strip() != ""])
             if opcoes:
-                selecao = st.sidebar.multiselect(f"Filtrar {coluna}:", options=opcoes)
-                if selecao:
-                    df_filtrado = df_filtrado[df_filtrado[coluna].astype(str).isin(selecao)]
-        # Para colunas de texto livre (Matrícula, Nome, etc.), cria uma caixa de busca por texto
-        else:
-            busca = st.sidebar.text_input(f"Buscar em {coluna}:")
-            if busca:
-                df_filtrado = df_filtrado[df_filtrado[coluna].astype(str).str.lower().str.contains(busca.lower(), na=False)]
-
-    st.markdown(f"### Registros ({len(df_filtrado)} encontrados)")
-    st.dataframe(df_filtrado, use_container_width=True)
-
-    csv = df_filtrado.to_csv(index=False).encode('utf-8')
-    st.download_button(
-        label="📥 Baixar Relatório Consolidado em CSV",
-        data=csv,
-        file_name=f"relatorio_efetivo_{aba_selecionada.lower().replace(' ', '_')}.csv",
-        mime='text/csv',
-    )
-
-    # =========================================================
-    # 4. CHATBOT GEMINI INTEGRADO
-    # =========================================================
-    st.divider()
-    st.subheader("💬 Chatbot de Consulta Inteligente (Gemini)")
-    st.write(f"Faça perguntas sobre os totais e indicadores da seleção atual.")
-
-    if "historico_chat" not in st.session_state:
-        st.session_state.historico_chat = []
-
-    for mensagem in st.session_state.historico_chat:
-        with st.chat_message(mensagem["role"]):
-            st.markdown(mensagem["content"])
-
-    pergunta = st.chat_input("Ex.: Quantos militares readaptados temos no total?")
-
-    if pergunta:
-        st.session_state.historico_chat.append({"role": "user", "content": pergunta})
-        resposta = responder_chatbot(pergunta, df_filtrado)
-        st.session_state.historico_chat.append({"role": "assistant", "content": resposta})
-        st.rerun()
-
-else:
-    st.warning("Não há dados disponíveis para exibir na seleção atual.")
-
-st.divider()
-st.caption("Painel de Efetivo • Desenvolvido com Streamlit e Google Sheets API")
+                selecao = st
