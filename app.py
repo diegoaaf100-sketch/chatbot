@@ -1,4 +1,6 @@
+import os
 import time
+from google import genai
 import pandas as pd
 import streamlit as st
 
@@ -96,12 +98,8 @@ def resumo_agregado_para_chat(dados: pd.DataFrame) -> dict:
 
 
 # =========================================================
-# CONFIGURAÇÃO DO CLIENTE GEMINI (exemplo de inicialização)
+# CONFIGURAÇÃO DO CLIENTE GEMINI
 # =========================================================
-# Certifique-se de configurar a biblioteca google-genai e o st.secrets corretamente no seu app
-import os
-from google import genai
-
 api_key = st.secrets.get("GEMINI_API_KEY") or os.environ.get("GEMINI_API_KEY")
 gemini_client = genai.Client(api_key=api_key) if api_key else None
 
@@ -145,7 +143,9 @@ Resumo agregado do painel:
                 return "O limite de requisições do Gemini foi atingido. Aguarde um pouco e tente novamente."
             if "503" in erro_texto or "UNAVAILABLE" in erro_texto.upper():
                 return "O serviço do Gemini está temporariamente indisponível. Tente novamente em instantes."
-            return "Não foi possível consultar o Gemini. Confira a configuração da chave e tente novamente."
+            
+            # Retorna o erro detalhado para sabermos exatamente o que aconteceu
+            return f"Erro técnico retornado: {erro_texto}"
 
 
 # =========================================================
@@ -154,8 +154,6 @@ Resumo agregado do painel:
 
 st.title("📊 Painel de Gestão de Efetivo")
 
-# (Nota: Certifique-se de que o seu df_filtrado está definido antes deste ponto no seu dashboard principal)
-# Exemplo simulado caso teste isolado:
 if "df_filtrado" not in st.session_state:
     st.session_state.df_filtrado = pd.DataFrame()
 
