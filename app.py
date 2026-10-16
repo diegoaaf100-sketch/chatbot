@@ -125,25 +125,23 @@ Resumo agregado dos dados selecionados atualmente:
 {resumo}
 """
 
-    # Modelos recomendados atualizados para o SDK moderno google-genai
     modelos_para_tentar = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
     
     for modelo in modelos_para_tentar:
         try:
             resposta = gemini_client.models.generate_content(
                 model=modelo,
-                contents=[
-                    {"role": "user", "parts": [{"text": prompt_sistema}, {"text": f"Pergunta do usuário: {pergunta}"}]}
-                ]
+                contents=pergunta,
+                config={
+                    "system_instruction": prompt_sistema,
+                }
             )
             if resposta and resposta.text:
                 return resposta.text
         except Exception as e:
-            # Tenta o próximo modelo em caso de falha/indisponibilidade pontual
             continue
             
     return "Desculpe, não foi possível obter uma resposta do Gemini no momento. Verifique se a chave da API está correta nos Secrets."
-
 # =========================================================
 # 3. INTERFACE DO DASHBOARD NO STREAMLIT
 # =========================================================
