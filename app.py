@@ -25,7 +25,16 @@ ABAS_VALIDAS = [
 def carregar_aba(nome_aba: str) -> pd.DataFrame:
     """Carrega uma aba específica da planilha privada de forma segura usando o formato CSV do Google Sheets"""
     try:
-        spreadsheet_url = st.secrets["connections"]["gsheets"]
+        raw_secret = st.secrets["connections"]["gsheets"]
+        
+        # Extrai a URL caso o secret venha como dicionário ou texto puro
+        if isinstance(raw_secret, dict):
+            spreadsheet_url = raw_secret.get("spreadsheet", "")
+        else:
+            spreadsheet_url = str(raw_secret)
+            
+        # Limpa espaços ou caracteres indesejados da URL
+        spreadsheet_url = spreadsheet_url.strip(" {}'\"")
         
         # Extrai o ID da planilha da URL
         if "/d/" in spreadsheet_url:
@@ -36,20 +45,15 @@ def carregar_aba(nome_aba: str) -> pd.DataFrame:
         # Monta a URL de exportação da aba específica em formato CSV
         url_csv = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={requests.utils.quote(nome_aba)}"
         
-        # Faz a requisição HTTP (suporta planilhas compartilhadas com contas de serviço se públicas, 
-        # ou usa o formato de exportação direta do Google Sheets)
-        df = pd.read_csv(url_csv, header=1) # header=1 indica que a linha 2 (index 1) é o cabeçalho
+        df = pd.read_csv(url_csv, header=1) # header=1 indica que a linha 2 é o cabeçalho
         
-        # Limpeza do DataFrame
         df = df.dropna(how="all")
-        # Remove colunas sem nome (vazias)
         df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
         
         return df
     except Exception as e:
         st.error(f"Erro ao processar os dados da aba {nome_aba}: {e}")
         return pd.DataFrame()
-
 # =========================================================
 # 2. CONFIGURAÇÃO DO GEMINI (SDK MODERNO)
 # =========================================================
