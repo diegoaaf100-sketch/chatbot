@@ -43,9 +43,11 @@ def conectar_google_sheets():
     spreadsheet_url = spreadsheet_url.strip(" {}'\"")
     return client.open_by_url(spreadsheet_url)
 
+import traceback
+
 @st.cache_data(ttl=600)
 def carregar_aba(nome_aba: str) -> pd.DataFrame:
-    """Carrega uma aba e exibe o erro técnico exato caso ocorra falha"""
+    """Carrega uma aba e exibe o rastreamento completo do erro técnico"""
     try:
         sh = conectar_google_sheets()
         worksheets = sh.worksheets()
@@ -66,7 +68,7 @@ def carregar_aba(nome_aba: str) -> pd.DataFrame:
             matriz = ws_alvo.get_all_values()
             
             if len(matriz) < 2:
-                st.warning(f"A aba '{nome_aba}' possui menos de 2 linhas (sem cabeçalho na linha 2).")
+                st.warning(f"A aba '{nome_aba}' possui menos de 2 linhas.")
                 return pd.DataFrame()
                 
             cabecalho = [str(c).strip() for c in matriz[1]]
@@ -87,11 +89,12 @@ def carregar_aba(nome_aba: str) -> pd.DataFrame:
             return df
         else:
             abas_existentes = [ws.title for ws in worksheets]
-            st.error(f"A aba '{nome_aba}' não foi encontrada na planilha. Abas disponíveis no arquivo: {abas_existentes}")
+            st.error(f"A aba '{nome_aba}' não foi encontrada. Abas disponíveis: {abas_existentes}")
             return pd.DataFrame()
     except Exception as e:
-        # Exibe o erro técnico exato na tela para sabermos o motivo exato
-        st.error(f"ERRO TÉCNICO na aba {nome_aba}: {str(e)}")
+        # Exibe o erro completo detalhado na tela
+        st.error("ERRO DETALHADO:")
+        st.code(traceback.format_exc())
         return pd.DataFrame()
 # =========================================================
 # 2. CONFIGURAÇÃO DO GEMINI (SDK MODERNO)
