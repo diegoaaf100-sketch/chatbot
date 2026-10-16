@@ -128,8 +128,9 @@ Resumo agregado do painel:
 """
     for tentativa in range(2):
         try:
+            # Atualizado para utilizar o modelo gemini-1.5-flash
             resposta = gemini_client.models.generate_content(
-                model="gemini-2.5-flash",
+                model="gemini-1.5-flash",
                 contents=[prompt_sistema, f"Pergunta do usuário: {pergunta}"],
             )
             texto_resposta = getattr(resposta, "text", None)
@@ -144,7 +145,6 @@ Resumo agregado do painel:
             if "503" in erro_texto or "UNAVAILABLE" in erro_texto.upper():
                 return "O serviço do Gemini está temporariamente indisponível. Tente novamente em instantes."
             
-            # Retorna o erro detalhado para sabermos exatamente o que aconteceu
             return f"Erro técnico retornado: {erro_texto}"
 
 
