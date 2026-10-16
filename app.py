@@ -96,51 +96,161 @@ def carregar_aba(nome_aba: str) -> pd.DataFrame:
     except Exception as e:
         return pd.DataFrame()
 
+
 # =========================================================
-# 2. CONFIGURAÇÃO DO GEMINI (Via API REST Direta)
+# 2. CONFIGURAÇÃO DO GEMINI (API REST)
 # =========================================================
-api_key = st.secrets.get("GEMINI_API_KEY", "")
+
+api_key = st.secrets.get("GEMINI_API_KEY", "").strip()
+
+MODELO_GEMINI = "gemini-3.8-flash"
+
 
 def resumo_para_ia(df: pd.DataFrame) -> dict:
+    """Envia somente indicadores agregados para a IA."""
     return {
         "total_efetivo": len(df),
-        "postos_distribuicao": df["Posto / Graduação"].value_counts().head(10).to_dict() if "Posto / Graduação" in df.columns else {},
-        "quadros_distribuicao": df["Quadro"].value_counts().to_dict() if "Quadro" in df.columns else {},
-        "readaptados_total": int((df["Militar Readaptado"].astype(str).str.lower().isin(["sim", "s", "true", "1"])).sum()) if "Militar Readaptado" in df.columns else 0,
-        "pcd_total": int((df["Militar PCD"].astype(str).str.lower().isin(["sim", "s", "true", "1"])).sum()) if "Militar PCD" in df.columns else 0,
+        "postos_distribuicao": (
+            df["Posto / Graduação"].value_counts().head(10).to_dict()
+            if "Posto / Graduação" in df.columns else {}
+        ),
+        "quadros_distribuicao": (
+            df["Quadro"].value_counts().to_dict()
+            if "Quadro" in df.columns else {}
+        ),
+        "readaptados_total": int(
+            df["Militar Readaptado"].astype(str).str.strip().str.lower()
+            .isin(["sim", "s", "true", "1"]).sum()
+        ) if "Militar Readaptado" in df.columns else 0,
+        "pcd_total": int(
+            df["Militar PCD"].astype(str).str.strip().str.lower()
+            .isin(["sim", "s", "true", "1"]).sum()
+        ) if "Militar PCD" in df.columns else 0,
     }
+
 
 def responder_chatbot(pergunta: str, dados: pd.DataFrame) -> str:
     if not api_key:
-        return "⚠️ A chave `GEMINI_API_KEY` não está configurada nos Secrets do Streamlit."
+        return (
+            "⚠️ A chave GEMINI_API_KEY não está configurada "
+            "nos Secrets do Streamlit."
+        )
+
+    if not pergunta or not pergunta.strip():
+        return "Digite uma pergunta para consultar o assistente."
 
     resumo = resumo_para_ia(dados)
-    prompt_completo = f"""
-Assistente analítico de efetivo militar. Responda em português de forma formal, objetiva e com base exclusivamente nestes dados agregados:
-{resumo}
 
-Pergunta: {pergunta}
+    prompt_completo = f"""
+Você é um assistente analítico de gestão de efetivo militar.
+
+Responda em português brasileiro, com linguagem formal e objetiva.
+Utilize exclusivamente os indicadores agregados fornecidos abaixo.
+Não invente números nem afirme possuir informações que não estejam
+presentes nos dados. Se não houver informação suficiente, informe isso.
+
+DADOS AGREGADOS:
+{json.dumps(resumo, ensure_ascii=False)}
+
+PERGUNTA:
+{pergunta.strip()}
 """
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
-    
-    headers = {'Content-Type': 'application/json'}
+    url = (
+        "https://generativelanguage.googleapis.com/"
+        f"v1beta/models/{MODELO_GEMINI}:generateContent"
+    )
+
+    headers = {
+        "Content-Type": "application/json",
+        "x-goog-api-key": api_key,
+    }
+
     payload = {
-        "contents": [{
-            "parts": [{"text": prompt_completo}]
-        }]
+        "contents": [
+            {
+                "parts": [
+                    {"text": prompt_completo}
+                ]
+            }
+        ]
     }
 
     try:
-        response = requests.post(url, headers=headers, data=json.dumps(payload), timeout=15)
-        if response.status_code == 200:
-            res_json = response.json()
-            texto_resposta = res_json["candidates"][0]["content"]["parts"][0]["text"]
-            return texto_resposta
-        else:
-            return f"⚠️ Erro HTTP na API ({response.status_code}): {response.text}"
-    except Exception as e:
-        return f"⚠️ Erro de conexão com a API: {str(e)}"
+        response = requests.post(
+            url,
+            headers=headers,
+            json=payload,
+            timeout=30,
+        )
+
+        if response.status_code != 200:
+            # Não exibir a resposta bruta da API nem a chave.
+            if response.status_code == 400:
+                return (
+                    "⚠️ A API recusou a solicitação. "
+                    "Verifique o formato da requisição."
+                )
+            elif response.status_code in (401, 403):
+                return (
+                    "⚠️ Falha de autenticação ou permissão da API. "
+                    "Verifique a chave e as permissões no Google AI Studio."
+                )
+            elif response.status_code == 404:
+                return (
+                    "⚠️ Modelo Gemini não encontrado ou indisponível. "
+                    "Verifique o nome do modelo e o acesso à API."
+                )
+            elif response.status_code == 429:
+                return (
+                    "⚠️ Limite de uso da API atingido. "
+                    "Aguarde e tente novamente."
+                )
+            else:
+                return (
+                    f"⚠️ A API Gemini retornou HTTP "
+                    f"{response.status_code}. Tente novamente."
+                )
+
+        resultado = response.json()
+
+        candidatos = resultado.get("candidates", [])
+        if not candidatos:
+            return (
+                "⚠️ A API não retornou uma resposta utilizável. "
+                "Tente reformular a pergunta."
+            )
+
+        partes = candidatos[0].get("content", {}).get("parts", [])
+        texto = "\n".join(
+            parte["text"]
+            for parte in partes
+            if isinstance(parte, dict) and parte.get("text")
+        ).strip()
+
+        if not texto:
+            return "⚠️ O Gemini não retornou texto para esta pergunta."
+
+        return texto
+
+    except requests.Timeout:
+        return (
+            "⚠️ A consulta ao Gemini demorou demais. "
+            "Tente novamente."
+        )
+
+    except requests.RequestException:
+        return (
+            "⚠️ Não foi possível conectar à API Gemini. "
+            "Verifique a conexão e tente novamente."
+        )
+
+    except (ValueError, KeyError, TypeError):
+        return (
+            "⚠️ A resposta da API não pôde ser interpretada. "
+            "Tente novamente."
+        )
+
 
 # =========================================================
 # 3. INTERFACE DO DASHBOARD NO STREAMLIT
