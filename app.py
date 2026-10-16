@@ -112,37 +112,37 @@ def resumo_para_ia(df: pd.DataFrame) -> dict:
 
 def responder_chatbot(pergunta: str, dados: pd.DataFrame) -> str:
     if not gemini_client:
-        return "A chave GEMINI_API_KEY não está configurada nos Secrets do Streamlit."
+        return "⚠️ A chave `GEMINI_API_KEY` não está configurada nos Secrets do Streamlit."
 
     resumo = resumo_para_ia(dados)
     prompt_completo = f"""
-[INSTRUÇÕES DO SISTEMA]
-Você é um assistente analítico de efetivo militar integrado a um dashboard Streamlit.
-Responda em português brasileiro de forma clara, estritamente objetiva e formal.
-Use exclusivamente os indicadores agregados fornecidos abaixo. Não invente dados.
-Nunca solicite nem tente inferir nomes, matrículas, e-mails, telefones ou detalhes pessoais individuais.
-
-Resumo agregado dos dados selecionados atualmente:
+Assistente analítico de efetivo militar. Responda em português de forma formal, objetiva e com base exclusivamente nestes dados agregados:
 {resumo}
 
-[PERGUNTA DO USUÁRIO]
-{pergunta}
+Pergunta: {pergunta}
 """
 
-    modelos_para_tentar = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
-    
-    for modelo in modelos_para_tentar:
+    try:
+        # Utiliza diretamente o modelo padrão recomendado para testes rápidos
+        resposta = gemini_client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt_completo
+        )
+        if resposta and resposta.text:
+            return resposta.text
+    except Exception as e:
         try:
+            # Fallback para o modelo 2.0 caso o 2.5 não esteja liberado na conta
             resposta = gemini_client.models.generate_content(
-                model=modelo,
+                model="gemini-2.0-flash",
                 contents=prompt_completo
             )
             if resposta and resposta.text:
                 return resposta.text
-        except Exception:
-            continue
+        except Exception as e2:
+            return f"⚠️ Erro técnico na API do Gemini: {str(e2)}"
             
-    return "Desculpe, não foi possível obter uma resposta do Gemini no momento. Verifique se a chave da API está correta nos Secrets."
+    return "⚠️ O Gemini retornou uma resposta vazia."
 
 # =========================================================
 # 3. INTERFACE DO DASHBOARD NO STREAMLIT
