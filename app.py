@@ -19,21 +19,18 @@ def verificar_senha():
         usuario = st.session_state["username"]
         senha = st.session_state["password"]
         
-        # Pega o dicionário de senhas dos secrets do Streamlit
         senhas_cadastradas = st.secrets.get("passwords", {})
         
         if usuario in senhas_cadastradas and senhas_cadastradas[usuario] == senha:
             st.session_state["senha_correta"] = True
             st.session_state["usuario_logado"] = usuario
-            del st.session_state["password"]  # Remove a senha da memória por segurança
+            del st.session_state["password"]
         else:
             st.session_state["senha_correta"] = False
 
-    # Se já estiver autenticado, retorna True
     if st.session_state.get("senha_correta", False):
         return True
 
-    # Exibe a tela de login na barra lateral
     st.sidebar.markdown("### 🔐 Acesso Restrito")
     st.sidebar.text_input("Usuário", key="username")
     st.sidebar.text_input("Senha", type="password", key="password")
@@ -44,7 +41,6 @@ def verificar_senha():
     
     return False
 
-# Bloqueia o restante da aplicação caso não esteja logado
 if not verificar_senha():
     st.info("👈 Por favor, insira seu usuário e senha na barra lateral para acessar o painel.")
     st.stop()
@@ -96,7 +92,6 @@ def conectar_google_sheets():
 
 @st.cache_data(ttl=600)
 def carregar_aba(nome_aba: str) -> pd.DataFrame:
-    """Carrega uma aba específica, limpa o nome da coluna de matrícula e garante o cabeçalho na linha 2"""
     try:
         sh = conectar_google_sheets()
         worksheets = sh.worksheets()
@@ -122,4 +117,44 @@ def carregar_aba(nome_aba: str) -> pd.DataFrame:
             linhas = matriz[2:]
             
             dados_estruturados = []
-            for
+            for linha in linhas:
+                while len(linha) < len(cabecalho):
+                    linha.append("")
+                item = {cabecalho[i]: str(linha[i]) if i < len(linha) and linha[i] is not None else "" for i in range(len(cabecalho))}
+                dados_estruturados.append(item)
+                
+            df = pd.DataFrame(dados_estruturados)
+            df = df.dropna(how="all")
+            if "" in df.columns:
+                df = df.drop(columns=[""])
+                
+            novos_nomes = {}
+            for col in df.columns:
+                if col.lower().startswith("matrícula") or col.lower().startswith("matricula"):
+                    novos_nomes[col] = "Matrícula"
+            if novos_nomes:
+                df = df.rename(columns=novos_nomes)
+                
+            return df
+        else:
+            return pd.DataFrame()
+    except Exception as e:
+        return pd.DataFrame()
+
+# =========================================================
+# 2. CONFIGURAÇÃO DO GEMINI
+# =========================================================
+api_key = st.secrets.get("GEMINI_API_KEY", "")
+
+def resumo_para_ia(df: pd.DataFrame) -> dict:
+    return {
+        "total_efetivo": len(df),
+        "postos_distribuicao": df["Posto / Graduação"].value_counts().head(10).to_dict() if "Posto / Graduação" in df.columns else {},
+        "quadros_distribuicao": df["Quadro"].value_counts().to_dict() if "Quadro" in df.columns else {},
+        "readaptados_total": int((df["Militar Readaptado"].astype(str).str.lower().isin(["sim", "s", "true", "1"])).sum()) if "Militar Readaptado" in df.columns else 0,
+        "pcd_total": int((df["Militar PCD"].astype(str).str.lower().isin(["sim", "s", "true", "1"])).sum()) if "Militar PCD" in df.columns else 0,
+    }
+
+def responder_chatbot(pergunta: str, dados: pd.DataFrame) -> str:
+    if not api_key:
+        return "⚠️ A chave GEMINI_API_KEY não está configurada nos Secrets
