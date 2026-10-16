@@ -1,8 +1,8 @@
 import os
 import time
-from google import genai
 import pandas as pd
 import streamlit as st
+from google import genai
 
 # =========================================================
 # FUNÇÕES DE APOIO E RESUMO
@@ -126,26 +126,42 @@ individuais nem identificadores pessoais.
 Resumo agregado do painel:
 {resumo}
 """
-    for tentativa in range(2):
-        try:
-            resposta = gemini_client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=[prompt_sistema, f"Pergunta do usuário: {pergunta}"],
-            )
-            texto_resposta = getattr(resposta, "text", None)
-            return texto_resposta or "O Gemini não retornou uma resposta textual."
-        except Exception as erro:
-            erro_texto = str(erro)
-            if ("503" in erro_texto or "UNAVAILABLE" in erro_texto.upper()) and tentativa == 0:
-                time.sleep(2)
-                continue
-            if "429" in erro_texto or "RESOURCE_EXHAUSTED" in erro_texto.upper():
-                return "O limite de requisições do Gemini foi atingido. Aguarde um pouco e tente novamente."
-            if "503" in erro_texto or "UNAVAILABLE" in erro_texto.upper():
-                return "O serviço do Gemini está temporariamente indisponível. Tente novamente em instantes."
-            
-            # Retorna o erro detalhado para sabermos exatamente o que aconteceu
-            return f"Erro técnico retornado: {erro_texto}"
+    modelos_para_tentar = [
+        "gemini-2.0-flash",
+        "gemini-1.5-flash-latest",
+        "gemini-1.5-flash-002",
+        "gemini-1.5-pro",
+    ]
+
+    ultimo_erro = ""
+
+    for modelo in modelos_para_tentar:
+        for tentativa in range(2):
+            try:
+                resposta = gemini_client.models.generate_content(
+                    model=modelo,
+                    contents=[prompt_sistema, f"Pergunta do usuário: {pergunta}"],
+                )
+                texto_resposta = getattr(resposta, "text", None)
+                if texto_resposta:
+                    return texto_resposta
+                return "O Gemini não retornou uma resposta textual."
+            except Exception as erro:
+                erro_texto = str(erro)
+                ultimo_erro = erro_texto
+                
+                if "404" in erro_texto or "NOT_FOUND" in erro_texto.upper():
+                    break
+                
+                if ("503" in erro_texto or "UNAVAILABLE" in erro_texto.upper()) and tentativa == 0:
+                    time.sleep(2)
+                    continue
+                if "429" in erro_texto or "RESOURCE_EXHAUSTED" in erro_texto.upper():
+                    return "O limite de requisições do Gemini foi atingido. Aguarde um pouco e tente novamente."
+                if "503" in erro_texto or "UNAVAILABLE" in erro_texto.upper():
+                    return "O serviço do Gemini está temporariamente indisponível. Tente novamente em instantes."
+
+    return f"Não foi possível consultar os modelos do Gemini. Erro: {ultimo_erro}"
 
 
 # =========================================================
