@@ -45,33 +45,33 @@ def conectar_google_sheets():
 
 @st.cache_data(ttl=600)
 def carregar_aba(nome_aba: str) -> pd.DataFrame:
-    """Carrega uma aba específica da planilha privada garantindo o cabeçalho na linha 2"""
+    """Carrega uma aba específica da planilha privada de forma totalmente flexível a acentos"""
     try:
         sh = conectar_google_sheets()
         worksheets = sh.worksheets()
         ws_alvo = None
         
+        # Normaliza o nome buscado (remove acentos, espaços e padroniza maiúsculas)
+        import unicodedata
+        def normalizar(texto):
+            return ''.join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn').strip().lower().replace("º", "°")
+        
+        alvo_normalizado = normalizar(nome_aba)
+        
         for ws in worksheets:
-            titulo_limpo = ws.title.strip().lower().replace("º", "°")
-            alvo_limpo = nome_aba.strip().lower().replace("º", "°")
-            if titulo_limpo == alvo_limpo:
+            if normalizar(ws.title) == alvo_normalizado:
                 ws_alvo = ws
                 break
                 
         if ws_alvo:
-            # Puxa a matriz bruta de valores da aba
             matriz = ws_alvo.get_all_values()
             
             if len(matriz) < 2:
-                return pd.DataFrame()
+                return pd.DataFrame() # Aba vazia
                 
-            # A linha 2 (índice 1) é o cabeçalho
             cabecalho = [str(c).strip() for c in matriz[1]]
-            
-            # Da linha 3 em diante (índice 2) são os dados
             linhas = matriz[2:]
             
-            # Constrói o DataFrame de forma segura convertendo células para string
             dados_estruturados = []
             for linha in linhas:
                 while len(linha) < len(cabecalho):
@@ -86,6 +86,7 @@ def carregar_aba(nome_aba: str) -> pd.DataFrame:
                 
             return df
         else:
+            st.warning(f"A aba '{nome_aba}' não foi encontrada na planilha.")
             return pd.DataFrame()
     except Exception as e:
         st.error(f"Erro ao processar os dados da aba {nome_aba}: {e}")
