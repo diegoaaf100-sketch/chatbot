@@ -126,12 +126,12 @@ individuais nem identificadores pessoais.
 Resumo agregado do painel:
 {resumo}
 """
-    # Lista atualizada focada nos modelos padrão aceitos pelo SDK moderno
+    
+    # Modelos testados em ordem para evitar erros 404
     modelos_para_tentar = [
         "gemini-2.5-flash",
-        "gemini-2.0-flash-exp",
+        "gemini-2.0-flash",
         "gemini-1.5-flash",
-        "gemini-1.5-pro",
     ]
 
     ultimo_erro = ""
@@ -151,7 +151,6 @@ Resumo agregado do painel:
                 erro_texto = str(erro)
                 ultimo_erro = erro_texto
                 
-                # Se o erro for 404, pula imediatamente para o próximo modelo da lista
                 if "404" in erro_texto or "NOT_FOUND" in erro_texto.upper():
                     break
                 
@@ -163,7 +162,7 @@ Resumo agregado do painel:
                 if "503" in erro_texto or "UNAVAILABLE" in erro_texto.upper():
                     return "O serviço do Gemini está temporariamente indisponível. Tente novamente em instantes."
 
-    return f"Não foi possível consultar os modelos do Gemini. Erro: {ultimo_erro}"
+    return f"Não foi possível consultar o Gemini. Erro: {ultimo_erro}"
 
 
 # =========================================================
@@ -199,6 +198,7 @@ if pergunta:
     resposta = responder_chatbot(pergunta, df_filtrado)
     st.session_state.historico_chat.append({"role": "assistant", "content": resposta})
     st.rerun()
+
 
 # =========================================================
 # RODAPÉ
