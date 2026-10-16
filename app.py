@@ -109,7 +109,6 @@ def resumo_para_ia(df: pd.DataFrame) -> dict:
         "readaptados_total": int((df["Militar Readaptado"].astype(str).str.lower().isin(["sim", "s", "true", "1"])).sum()) if "Militar Readaptado" in df.columns else 0,
         "pcd_total": int((df["Militar PCD"].astype(str).str.lower().isin(["sim", "s", "true", "1"])).sum()) if "Militar PCD" in df.columns else 0,
     }
-
 def responder_chatbot(pergunta: str, dados: pd.DataFrame) -> str:
     if not gemini_client:
         return "⚠️ A chave `GEMINI_API_KEY` não está configurada nos Secrets do Streamlit."
@@ -122,23 +121,27 @@ Assistente analítico de efetivo militar. Responda em português de forma formal
 Pergunta: {pergunta}
 """
 
-    # Modelos atualizados conforme o aviso técnico da API do Google
-    modelos_para_tentar = ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
-    
-    ultimo_erro = ""
-    for modelo in modelos_para_tentar:
+    try:
+        # Usa o modelo atual mais estável do SDK google-genai
+        resposta = gemini_client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt_completo
+        )
+        if resposta and resposta.text:
+            return resposta.text
+    except Exception as e:
         try:
+            # Segunda tentativa com o identificador alternativo padrão
             resposta = gemini_client.models.generate_content(
-                model=modelo,
+                model="gemini-flash",
                 contents=prompt_completo
             )
             if resposta and resposta.text:
                 return resposta.text
-        except Exception as e:
-            ultimo_erro = str(e)
-            continue
+        except Exception as e2:
+            return f"⚠️ Erro técnico na API do Gemini: {str(e2)}"
             
-    return f"⚠️ Erro técnico na API do Gemini: {ultimo_erro}"
+    return "⚠️ O Gemini retornou uma resposta vazia."
 
 # =========================================================
 # 3. INTERFACE DO DASHBOARD NO STREAMLIT
