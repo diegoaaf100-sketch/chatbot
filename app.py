@@ -122,7 +122,7 @@ Pergunta: {pergunta}
 """
 
     try:
-        # Usa o modelo atual mais estável do SDK google-genai
+        # Tenta usar o identificador padrão universal do Google GenAI
         resposta = gemini_client.models.generate_content(
             model="gemini-2.5-flash",
             contents=prompt_completo
@@ -131,7 +131,7 @@ Pergunta: {pergunta}
             return resposta.text
     except Exception as e:
         try:
-            # Segunda tentativa com o identificador alternativo padrão
+            # Alternativa sem versão específica
             resposta = gemini_client.models.generate_content(
                 model="gemini-flash",
                 contents=prompt_completo
@@ -141,8 +141,7 @@ Pergunta: {pergunta}
         except Exception as e2:
             return f"⚠️ Erro técnico na API do Gemini: {str(e2)}"
             
-    return "⚠️ O Gemini retornou uma resposta vazia."
-
+    return "⚠️ Erro técnico na API do Gemini. Verifique as permissões da chave de API."
 # =========================================================
 # 3. INTERFACE DO DASHBOARD NO STREAMLIT
 # =========================================================
