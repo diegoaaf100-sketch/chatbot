@@ -37,13 +37,47 @@ def conectar_google_sheets():
 
 @st.cache_data(ttl=600)
 def carregar_aba(nome_aba: str) -> pd.DataFrame:
-    """Carrega uma aba específica da planilha e retorna como DataFrame"""
+    """Carrega uma aba específica da planilha considerando que o cabeçalho está na linha 2"""
     try:
         sh = conectar_google_sheets()
-        worksheet = sh.worksheet(nome_aba)
-        dados = worksheet.get_all_records()
-        return pd.DataFrame(dados)
+        worksheets = sh.worksheets()
+        ws_alvo = None
+        
+        # Procura a aba de forma flexível (ignorando variações de ° e º ou maiúsculas)
+        for ws in worksheets:
+            titulo_limpo = ws.title.strip().lower().replace("º", "°")
+            alvo_limpo = nome_aba.strip().lower().replace("º", "°")
+            if titulo_limpo == alvo_limpo:
+                ws_alvo = ws
+                break
+                
+        if ws_alvo:
+            # Obtém todos os valores da aba como uma lista de listas
+            todos_valores = ws_alvo.get_all_values()
+            
+            if len(todos_valores) < 2:
+                return pd.DataFrame() # Aba vazia ou sem dados suficientes
+                
+            # A linha 2 (índice 1 no Python) é o cabeçalho
+            cabecalho = [str(c).strip() for c in todos_valores[1]]
+            
+            # Da linha 3 em diante (índice 2 em diante) são os dados
+            linhas_dados = todos_valores[2:]
+            
+            # Cria o DataFrame do Pandas limpo
+            df = pd.DataFrame(linhas_dados, columns=cabecalho)
+            
+            # Remove linhas que estejam totalmente vazias
+            df = df.dropna(how="all")
+            
+            # Remove colunas cujo nome seja vazio (caso existam colunas extras no final)
+            df = df.loc[:, df.columns != ""]
+            
+            return df
+        else:
+            return pd.DataFrame()
     except Exception as e:
+        st.error(f"Erro ao processar os dados da aba {nome_aba}: {e}")
         return pd.DataFrame()
 
 # =========================================================
