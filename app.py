@@ -2,7 +2,8 @@ import os
 import time
 import pandas as pd
 import streamlit as st
-import requests
+import gspread
+from google.oauth2.service_account import Credentials
 from google import genai
 
 # Configuração da página do Streamlit
@@ -19,41 +20,77 @@ ABAS_VALIDAS = [
 ]
 
 # =========================================================
-# 1. LEITURA DA PLANILHA PRIVADA VIA EXPORTAÇÃO CSV
+# 1. CONEXÃO COM A PLANILHA PRIVADA (GSPREAD + CONTA DE SERVIÇO)
 # =========================================================
+@st.cache_resource
+def conectar_google_sheets():
+    """Autentica e conecta ao Google Sheets usando as credenciais e o link dos st.secrets"""
+    scope = [
+        "https://www.googleapis.com/auth/spreadsheets.readonly",
+        "https://www.googleapis.com/auth/drive.readonly"
+    ]
+    
+    cred_dict = dict(st.secrets["gcp_service_account"])
+    creds = Credentials.from_service_account_info(cred_dict, scopes=scope)
+    client = gspread.authorize(creds)
+    
+    raw_secret = st.secrets["connections"]["gsheets"]
+    if isinstance(raw_secret, dict):
+        spreadsheet_url = raw_secret.get("spreadsheet", "")
+    else:
+        spreadsheet_url = str(raw_secret)
+        
+    spreadsheet_url = spreadsheet_url.strip(" {}'\"")
+    return client.open_by_url(spreadsheet_url)
+
 @st.cache_data(ttl=600)
 def carregar_aba(nome_aba: str) -> pd.DataFrame:
-    """Carrega uma aba específica da planilha privada de forma segura usando o formato CSV do Google Sheets"""
+    """Carrega uma aba específica da planilha privada garantindo o cabeçalho na linha 2"""
     try:
-        raw_secret = st.secrets["connections"]["gsheets"]
+        sh = conectar_google_sheets()
+        worksheets = sh.worksheets()
+        ws_alvo = None
         
-        # Extrai a URL caso o secret venha como dicionário ou texto puro
-        if isinstance(raw_secret, dict):
-            spreadsheet_url = raw_secret.get("spreadsheet", "")
-        else:
-            spreadsheet_url = str(raw_secret)
+        for ws in worksheets:
+            titulo_limpo = ws.title.strip().lower().replace("º", "°")
+            alvo_limpo = nome_aba.strip().lower().replace("º", "°")
+            if titulo_limpo == alvo_limpo:
+                ws_alvo = ws
+                break
+                
+        if ws_alvo:
+            # Puxa a matriz bruta de valores da aba
+            matriz = ws_alvo.get_all_values()
             
-        # Limpa espaços ou caracteres indesejados da URL
-        spreadsheet_url = spreadsheet_url.strip(" {}'\"")
-        
-        # Extrai o ID da planilha da URL
-        if "/d/" in spreadsheet_url:
-            sheet_id = spreadsheet_url.split("/d/")[1].split("/")[0]
+            if len(matriz) < 2:
+                return pd.DataFrame()
+                
+            # A linha 2 (índice 1) é o cabeçalho
+            cabecalho = [str(c).strip() for c in matriz[1]]
+            
+            # Da linha 3 em diante (índice 2) são os dados
+            linhas = matriz[2:]
+            
+            # Constrói o DataFrame de forma segura convertendo células para string
+            dados_estruturados = []
+            for linha in linhas:
+                while len(linha) < len(cabecalho):
+                    linha.append("")
+                item = {cabecalho[i]: str(linha[i]) if i < len(linha) and linha[i] is not None else "" for i in range(len(cabecalho))}
+                dados_estruturados.append(item)
+                
+            df = pd.DataFrame(dados_estruturados)
+            df = df.dropna(how="all")
+            if "" in df.columns:
+                df = df.drop(columns=[""])
+                
+            return df
         else:
-            sheet_id = spreadsheet_url
-
-        # Monta a URL de exportação da aba específica em formato CSV
-        url_csv = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={requests.utils.quote(nome_aba)}"
-        
-        df = pd.read_csv(url_csv, header=1) # header=1 indica que a linha 2 é o cabeçalho
-        
-        df = df.dropna(how="all")
-        df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
-        
-        return df
+            return pd.DataFrame()
     except Exception as e:
         st.error(f"Erro ao processar os dados da aba {nome_aba}: {e}")
         return pd.DataFrame()
+
 # =========================================================
 # 2. CONFIGURAÇÃO DO GEMINI (SDK MODERNO)
 # =========================================================
@@ -175,13 +212,13 @@ if not df.empty:
     pergunta = st.chat_input("Ex.: Quantos militares readaptados temos nesta unidade?")
 
     if pergunta:
-        st.session_state.historico_chat.append({"role": "user", "content":pergunta})
+        st.session_state.historico_chat.append({"role": "user", "content": pergunta})
         resposta = responder_chatbot(pergunta, df_filtrado)
         st.session_state.historico_chat.append({"role": "assistant", "content": resposta})
         st.rerun()
 
 else:
-    st.warning(f"Não foi possível carregar os dados da aba **{aba_selecionada}**. Verifique se a aba existe e se a planilha está configurada com permissão de visualização pública por link (ou compartilhada corretamente).")
+    st.warning(f"Não foi possível carregar os dados da aba **{aba_selecionada}**. Verifique se a aba existe na planilha restrita e se o e-mail da Conta de Serviço está cadastrado como leitor.")
 
 st.divider()
-st.caption("Painel de Efetivo • Desenvolvido com Streamlit e Google Sheets")
+st.caption("Painel de Efetivo • Desenvolvido com Streamlit e Google Sheets API")
