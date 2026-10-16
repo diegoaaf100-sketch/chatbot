@@ -37,7 +37,7 @@ def conectar_google_sheets():
 
 @st.cache_data(ttl=600)
 def carregar_aba(nome_aba: str) -> pd.DataFrame:
-    """Carrega uma aba específica da planilha considerando que o cabeçalho está na linha 2"""
+    """Carrega uma aba específica da planilha de forma blindada contra erros de tipo (AttrDict)"""
     try:
         sh = conectar_google_sheets()
         worksheets = sh.worksheets()
@@ -51,15 +51,28 @@ def carregar_aba(nome_aba: str) -> pd.DataFrame:
                 break
                 
         if ws_alvo:
-            todos_valores = ws_alvo.get_all_values()
+            # Puxa os dados utilizando get_values para garantir matriz de texto pura
+            todos_valores = ws_alvo.get_values()
             
             if len(todos_valores) < 2:
                 return pd.DataFrame()
                 
-            dados_limpos = [[str(cel) if cel is not None else "" for cel in linha] for linha in todos_valores]
-            cabecalho = [c.strip() for c in dados_limpos[1]]
-            linhas_dados = dados_limpos[2:]
+            # Converte absolutamente tudo para string para eliminar qualquer AttrDict
+            dados_str = []
+            for linha in todos_valores:
+                linha_convertida = []
+                for celula in linha:
+                    # Se por acaso vier um objeto complexo, converte para string
+                    linha_convertida.append(str(celula) if celula is not None else "")
+                dados_str.append(linha_convertida)
             
+            # A linha 2 (índice 1) é o cabeçalho
+            cabecalho = [c.strip() for c in dados_str[1]]
+            
+            # Da linha 3 em diante (índice 2) são os dados
+            linhas_dados = dados_str[2:]
+            
+            # Padroniza o número de colunas
             num_colunas = len(cabecalho)
             linhas_ajustadas = []
             for linha in linhas_dados:
@@ -79,7 +92,6 @@ def carregar_aba(nome_aba: str) -> pd.DataFrame:
     except Exception as e:
         st.error(f"Erro ao processar os dados da aba {nome_aba}: {e}")
         return pd.DataFrame()
-
 # =========================================================
 # 2. CONFIGURAÇÃO DO GEMINI (SDK MODERNO)
 # =========================================================
