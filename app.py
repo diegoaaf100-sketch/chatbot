@@ -4,7 +4,7 @@ import pandas as pd
 import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
-from google import genai
+import google.generativeai as genai
 
 # Configuração da página do Streamlit
 st.set_page_config(page_title="Painel de Gestão de Efetivo", page_icon="🛡️", layout="wide")
@@ -96,10 +96,11 @@ def carregar_aba(nome_aba: str) -> pd.DataFrame:
         return pd.DataFrame()
 
 # =========================================================
-# 2. CONFIGURAÇÃO DO GEMINI
+# 2. CONFIGURAÇÃO DO GEMINI (Biblioteca Clássica e Estável)
 # =========================================================
-api_key = st.secrets.get("GEMINI_API_KEY")
-gemini_client = genai.Client(api_key=api_key) if api_key else None
+api_key = st.secrets.get("GEMINI_API_KEY", "")
+if api_key:
+    genai.configure(api_key=api_key)
 
 def resumo_para_ia(df: pd.DataFrame) -> dict:
     return {
@@ -109,39 +110,36 @@ def resumo_para_ia(df: pd.DataFrame) -> dict:
         "readaptados_total": int((df["Militar Readaptado"].astype(str).str.lower().isin(["sim", "s", "true", "1"])).sum()) if "Militar Readaptado" in df.columns else 0,
         "pcd_total": int((df["Militar PCD"].astype(str).str.lower().isin(["sim", "s", "true", "1"])).sum()) if "Militar PCD" in df.columns else 0,
     }
+
 def responder_chatbot(pergunta: str, dados: pd.DataFrame) -> str:
-    if not gemini_client:
+    if not api_key:
         return "⚠️ A chave `GEMINI_API_KEY` não está configurada nos Secrets do Streamlit."
 
     resumo = resumo_para_ia(dados)
     prompt_completo = f"""
-Assistente analítico de efetivo militar. Responda em português de forma formal, objetiva e com base exclusivamente nestes dados agregados:
+[INSTRUÇÕES DO SISTEMA]
+Você é um assistente analítico de efetivo militar integrado a um dashboard Streamlit.
+Responda em português brasileiro de forma clara, estritamente objetiva e formal.
+Use exclusivamente os indicadores agregados fornecidos abaixo. Não invente dados.
+Nunca solicite nem tente inferir nomes, matrículas, e-mails, telefones ou detalhes pessoais individuais.
+
+Resumo agregado dos dados selecionados atualmente:
 {resumo}
 
-Pergunta: {pergunta}
+[PERGUNTA DO USUÁRIO]
+{pergunta}
 """
 
     try:
-        # Tenta usar o identificador padrão universal do Google GenAI
-        resposta = gemini_client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt_completo
-        )
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        resposta = model.generate_content(prompt_completo)
         if resposta and resposta.text:
             return resposta.text
     except Exception as e:
-        try:
-            # Alternativa sem versão específica
-            resposta = gemini_client.models.generate_content(
-                model="gemini-flash",
-                contents=prompt_completo
-            )
-            if resposta and resposta.text:
-                return resposta.text
-        except Exception as e2:
-            return f"⚠️ Erro técnico na API do Gemini: {str(e2)}"
+        return f"⚠️ Erro técnico na API do Gemini: {str(e)}"
             
-    return "⚠️ Erro técnico na API do Gemini. Verifique as permissões da chave de API."
+    return "⚠️ O Gemini retornou uma resposta vazia."
+
 # =========================================================
 # 3. INTERFACE DO DASHBOARD NO STREAMLIT
 # =========================================================
@@ -211,7 +209,7 @@ if not df.empty:
     st.divider()
 
     st.markdown(f"### Registros ({len(df_filtrado)} encontrados)")
-    st.dataframe(df_filtrado, use_container_width=True)
+    st.dataframe(df_filtrado, width='stretch')
 
     csv = df_filtrado.to_csv(index=False).encode('utf-8')
     st.download_button(
