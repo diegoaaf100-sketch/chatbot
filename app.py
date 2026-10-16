@@ -10,21 +10,22 @@ from google.oauth2.service_account import Credentials
 st.set_page_config(page_title="Painel de Gestão de Efetivo", page_icon="🛡️", layout="wide")
 
 # =========================================================
-# 0. SISTEMA DE AUTENTICAÇÃO (LOGIN E SENHA)
+# 0. SISTEMA DE AUTENTICAÇÃO (LOGIN E SENHA) SEGURO
 # =========================================================
 def verificar_senha():
     """Retorna True se o usuário inseriu a senha correta."""
     
     def senha_inserida():
-        usuario = st.session_state["admin"]
-        senha = st.session_state["dgp"]
+        usuario = st.session_state.get("username", "")
+        senha = st.session_state.get("password", "")
         
         senhas_cadastradas = st.secrets.get("passwords", {})
         
         if usuario in senhas_cadastradas and senhas_cadastradas[usuario] == senha:
             st.session_state["senha_correta"] = True
             st.session_state["usuario_logado"] = usuario
-            del st.session_state["password"]
+            if "password" in st.session_state:
+                del st.session_state["password"]
         else:
             st.session_state["senha_correta"] = False
 
@@ -36,7 +37,7 @@ def verificar_senha():
     st.sidebar.text_input("Senha", type="password", key="password")
     st.sidebar.button("Entrar", on_click=senha_inserida)
 
-    if "senha_correta" in st.session_state and not st.session_state["senha_correta"]:
+    if st.session_state.get("senha_correta") is False:
         st.sidebar.error("😕 Usuário ou senha incorretos")
     
     return False
@@ -231,77 +232,4 @@ if not df.empty:
             if busca:
                 df_filtrado = df_filtrado[df_filtrado[coluna].astype(str).str.lower().str.contains(busca.lower(), na=False)]
 
-    st.subheader(f"Efetivo: {aba_selecionada}")
-    
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric("Total de Militares", len(df_filtrado))
-    with col2:
-        readaptados = (df_filtrado["Militar Readaptado"].astype(str).str.lower().isin(["sim", "s", "true", "1"])).sum() if "Militar Readaptado" in df_filtrado.columns else 0
-        st.metric("Readaptados", int(readaptados))
-    with col3:
-        pcd = (df_filtrado["Militar PCD"].astype(str).str.lower().isin(["sim", "s", "true", "1"])).sum() if "Militar PCD" in df_filtrado.columns else 0
-        st.metric("PCD", int(pcd))
-    with col4:
-        punidos = df_filtrado["Punição"].astype(str).str.strip().ne("").sum() if "Punição" in df_filtrado.columns else 0
-        st.metric("Com Punição Registrada", int(punidos))
-
-    st.divider()
-
-    st.markdown(f"### Registros ({len(df_filtrado)} encontrados)")
-    st.dataframe(df_filtrado, width='stretch')
-
-    csv = df_filtrado.to_csv(index=False).encode('utf-8')
-    st.download_button(
-        label="📥 Baixar Relatório Consolidado em CSV",
-        data=csv,
-        file_name=f"relatorio_efetivo_{aba_selecionada.lower().replace(' ', '_')}.csv",
-        mime='text/csv',
-    )
-
-    if not df_filtrado.empty:
-        st.divider()
-        st.subheader("📊 Análise Gráfica do Efetivo Filtrado")
-        
-        gcol1, gcol2 = st.columns(2)
-        
-        with gcol1:
-            if "Posto / Graduação" in df_filtrado.columns:
-                st.markdown("**Distribuição por Posto / Graduação**")
-                contagem_postos = df_filtrado["Posto / Graduação"].value_counts()
-                st.bar_chart(contagem_postos)
-            else:
-                st.info("Coluna 'Posto / Graduação' não encontrada para o gráfico.")
-                
-        with gcol2:
-            if "Quadro" in df_filtrado.columns:
-                st.markdown("**Distribuição por Quadro**")
-                contagem_quadros = df_filtrado["Quadro"].value_counts()
-                st.bar_chart(contagem_quadros)
-            else:
-                st.info("Coluna 'Quadro' não encontrada para o gráfico.")
-
-    st.divider()
-    st.subheader("💬 Chatbot de Consulta Inteligente (Gemini)")
-    st.write(f"Faça perguntas sobre os totais e indicadores da seleção atual.")
-
-    if "historico_chat" not in st.session_state:
-        st.session_state.historico_chat = []
-
-    for mensagem in st.session_state.historico_chat:
-        with st.chat_message(mensagem["role"]):
-            st.markdown(mensagem["content"])
-
-    pergunta = st.chat_input("Ex.: Quantos militares readaptados temos no total?")
-
-    if pergunta:
-        st.session_state.historico_chat.append({"role": "user", "content": pergunta})
-        resposta = responder_chatbot(pergunta, df_filtrado)
-        st.session_state.historico_chat.append({"role": "assistant", "content": resposta})
-        st.rerun()
-
-else:
-    st.warning("Não há dados disponíveis para exibir na seleção atual.")
-
-st.divider()
-st.caption("Painel de Efetivo • Desenvolvido com Streamlit e Google Sheets API")
+    st.subheader(f"Efetivo: {
