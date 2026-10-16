@@ -1,3 +1,43 @@
+import time
+import pandas as pd
+import streamlit as st
+
+# =========================================================
+# FUNÇÕES DE APOIO E RESUMO
+# =========================================================
+
+def coluna_por_alias(dados: pd.DataFrame, aliases: list) -> str:
+    """Retorna o nome da coluna real existente no DataFrame com base em uma lista de possíveis aliases."""
+    for alias in aliases:
+        if alias in dados.columns:
+            return alias
+    return None
+
+def valor_preenchido(serie: pd.Series) -> pd.Series:
+    """Verifica se os valores de uma série estão preenchidos (não nulos e diferentes de vazio/espaços)."""
+    return serie.notna() & (serie.astype(str).str.strip() != "") & (serie.astype(str).str.lower() != "nan")
+
+def contar_afirmativos(dados: pd.DataFrame, aliases: list) -> int:
+    """Conta registros cujo valor preenchido seja afirmativo (Sim, True, 1, etc.)."""
+    coluna = coluna_por_alias(dados, aliases)
+    if not coluna:
+        return 0
+    serie = dados[coluna].astype(str).str.strip().str.lower()
+    afirmativos = {"sim", "s", "true", "1", "yes"}
+    return int(serie.isin(afirmativos).sum())
+
+def contar_preenchidos(dados: pd.DataFrame, aliases: list) -> int:
+    """Conta registros com dados preenchidos em uma coluna."""
+    coluna = coluna_por_alias(dados, aliases)
+    if not coluna:
+        return 0
+    return int(valor_preenchido(dados[coluna]).sum())
+
+def resumo_agregado_para_chat(dados: pd.DataFrame) -> dict:
+    """Gera um dicionário agregado e seguro com distribuições e indicadores para o chatbot."""
+    resumo = {
+        "distribuicao_posto": {},
+        "distribuicao_ome": {},
         "distribuicao_secao": {},
         "distribuicao_quadro": {},
         "indicadores": {},
@@ -55,6 +95,17 @@
     return resumo
 
 
+# =========================================================
+# CONFIGURAÇÃO DO CLIENTE GEMINI (exemplo de inicialização)
+# =========================================================
+# Certifique-se de configurar a biblioteca google-genai e o st.secrets corretamente no seu app
+import os
+from google import genai
+
+api_key = st.secrets.get("GEMINI_API_KEY") or os.environ.get("GEMINI_API_KEY")
+gemini_client = genai.Client(api_key=api_key) if api_key else None
+
+
 def responder_chatbot(pergunta: str, dados: pd.DataFrame) -> str:
     if not gemini_client:
         return (
@@ -97,6 +148,19 @@ Resumo agregado do painel:
             return "Não foi possível consultar o Gemini. Confira a configuração da chave e tente novamente."
 
 
+# =========================================================
+# INTERFACE DO STREAMLIT
+# =========================================================
+
+st.title("📊 Painel de Gestão de Efetivo")
+
+# (Nota: Certifique-se de que o seu df_filtrado está definido antes deste ponto no seu dashboard principal)
+# Exemplo simulado caso teste isolado:
+if "df_filtrado" not in st.session_state:
+    st.session_state.df_filtrado = pd.DataFrame()
+
+df_filtrado = st.session_state.df_filtrado
+
 st.subheader("💬 Chatbot de consulta com Gemini")
 st.write(
     "Faça perguntas sobre totais, distribuições e qualidade do preenchimento. "
@@ -120,9 +184,8 @@ if pergunta:
     st.session_state.historico_chat.append({"role": "assistant", "content": resposta})
     st.rerun()
 
-
 # =========================================================
 # RODAPÉ
 # =========================================================
 st.divider()
-st.caption(
+st.caption("Painel de Gestão de Efetivo • Desenvolvido com Streamlit e Google Gemini")
