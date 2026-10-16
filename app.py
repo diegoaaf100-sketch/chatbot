@@ -2,187 +2,151 @@ import os
 import time
 import pandas as pd
 import streamlit as st
+import gspread
+from google.oauth2.service_account import Credentials
 import google.generativeai as genai
 
-# =========================================================
-# FUNÇÕES DE APOIO E RESUMO
-# =========================================================
-
-def coluna_por_alias(dados: pd.DataFrame, aliases: list) -> str:
-    """Retorna o nome da coluna real existente no DataFrame com base em uma lista de possíveis aliases."""
-    for alias in aliases:
-        if alias in dados.columns:
-            return alias
-    return None
-
-def valor_preenchido(serie: pd.Series) -> pd.Series:
-    """Verifica se os valores de uma série estão preenchidos (não nulos e diferentes de vazio/espaços)."""
-    return serie.notna() & (serie.astype(str).str.strip() != "") & (serie.astype(str).str.lower() != "nan")
-
-def contar_afirmativos(dados: pd.DataFrame, aliases: list) -> int:
-    """Conta registros cujo valor preenchido seja afirmativo (Sim, True, 1, etc.)."""
-    coluna = coluna_por_alias(dados, aliases)
-    if not coluna:
-        return 0
-    serie = dados[coluna].astype(str).str.strip().str.lower()
-    afirmativos = {"sim", "s", "true", "1", "yes"}
-    return int(serie.isin(afirmativos).sum())
-
-def contar_preenchidos(dados: pd.DataFrame, aliases: list) -> int:
-    """Conta registros com dados preenchidos em uma coluna."""
-    coluna = coluna_por_alias(dados, aliases)
-    if not coluna:
-        return 0
-    return int(valor_preenchido(dados[coluna]).sum())
-
-def resumo_agregado_para_chat(dados: pd.DataFrame) -> dict:
-    """Gera um dicionário agregado e seguro com distribuições e indicadores para o chatbot."""
-    resumo = {
-        "distribuicao_posto": {},
-        "distribuicao_ome": {},
-        "distribuicao_secao": {},
-        "distribuicao_quadro": {},
-        "indicadores": {},
-        "campos_com_vazios": {},
-        "anos_de_afastamento": {},
-    }
-
-    for rotulo, aliases in [
-        ("Posto / Graduação", ["Posto / Graduação", "Posto/Graduação"]),
-        ("OME", ["OME"]),
-        ("Seção", ["Seção", "Secao"]),
-        ("Quadro", ["Quadro"]),
-    ]:
-        coluna = coluna_por_alias(dados, aliases)
-        if coluna:
-            contagem = (
-                dados[coluna].fillna("Não informado").astype(str)
-                .replace("", "Não informado").value_counts().head(30)
-            )
-            resumo_key = {
-                "Posto / Graduação": "distribuicao_posto",
-                "OME": "distribuicao_ome",
-                "Seção": "distribuicao_secao",
-                "Quadro": "distribuicao_quadro",
-            }[rotulo]
-            resumo[resumo_key] = {str(k): int(v) for k, v in contagem.items()}
-
-    for rotulo, aliases in [
-        ("readaptados", ["Militar Readaptado"]),
-        ("horario_especial", ["Militar com Horário Especial de Trabalho"]),
-        ("afastamento_1", ["Militar em Afastamento (1)"]),
-        ("afastamento_2", ["Militar em Afastamento (2)"]),
-        ("pcd", ["Militar PCD"]),
-        ("acumulacao_cargo", ["Acumulação de Cargo Público"]),
-    ]:
-        resumo["indicadores"][rotulo] = contar_afirmativos(dados, aliases)
-
-    resumo["indicadores"]["registros_com_punicao_preenchida"] = contar_preenchidos(
-        dados, ["Punição", "Punicao"]
-    )
-
-    for rotulo, aliases in [
-        ("matricula", ["Matrícula", "Matricula"]),
-        ("nome", ["Nome completo", "Nome"]),
-        ("ome", ["OME"]),
-        ("secao", ["Seção", "Secao"]),
-        ("email", ["Email", "E-mail"]),
-        ("telefone", ["Telefone - 1º Opção (DDD) 9XXXX-XXXX", "Telefone - 1a Opcao (DDD) 9XXXX-XXXX"]),
-        ("endereco", ["Endereço", "Endereco"]),
-    ]:
-        coluna = coluna_por_alias(dados, aliases)
-        if coluna:
-            resumo["campos_com_vazios"][rotulo] = int((~valor_preenchido(dados[coluna])).sum())
-
-    return resumo
-
+# Configuração da página do Streamlit
+st.set_page_config(page_title="Painel de Efetivo e Relatórios", page_icon="📊", layout="wide")
 
 # =========================================================
-# CONFIGURAÇÃO DO GEMINI (BIBLIOTECA CLÁSSICA)
+# 1. CONEXÃO COM A PLANILHA PRIVADA (MÚLTIPLAS ABAS)
 # =========================================================
-api_key = st.secrets.get("GEMINI_API_KEY") or os.environ.get("GEMINI_API_KEY")
+@st.cache_resource
+def conectar_google_sheets():
+    """Autentica e conecta ao Google Sheets usando as credenciais do st.secrets"""
+    scope = [
+        "https://www.googleapis.com/auth/spreadsheets.readonly",
+        "https://www.googleapis.com/auth/drive.readonly"
+    ]
+    
+    # Pega as credenciais dos Secrets do Streamlit
+    cred_dict = dict(st.secrets["gcp_service_account"])
+    creds = Credentials.from_service_account_info(cred_dict, scopes=scope)
+    client = gspread.authorize(creds)
+    
+    # Abre a planilha pelo link configurado nos secrets
+    spreadsheet_url = st.secrets["connections"]["gsheets"]
+    return client.open_by_url(spreadsheet_url)
+
+@st.cache_data(ttl=600)
+def carregar_aba(nome_aba: str) -> pd.DataFrame:
+    """Carrega uma aba específica da planilha como DataFrame do Pandas"""
+    try:
+        sh = conectar_google_sheets()
+        worksheet = sh.worksheet(nome_aba)
+        dados = worksheet.get_all_records()
+        return pd.DataFrame(dados)
+    except Exception as e:
+        st.error(f"Erro ao carregar a aba '{nome_aba}': {e}")
+        return pd.DataFrame()
+
+# =========================================================
+# 2. CONFIGURAÇÃO DO GEMINI
+# =========================================================
+api_key = st.secrets.get("GEMINI_API_KEY")
 if api_key:
     genai.configure(api_key=api_key)
 
-
 def responder_chatbot(pergunta: str, dados: pd.DataFrame) -> str:
     if not api_key:
-        return (
-            "O chatbot inteligente não está configurado. Confira se a chave "
-            "GEMINI_API_KEY está definida nos Secrets do Streamlit Cloud."
-        )
+        return "A chave GEMINI_API_KEY não está configurada nos Secrets."
 
-    resumo = resumo_agregado_para_chat(dados)
+    # Resumo agregado para garantir privacidade e eficiência
+    resumo = {
+        "total_registros": len(dados),
+        "colunas_disponiveis": list(dados.columns),
+        "amostra_dados": dados.head(5).to_dict(orient="records")
+    }
+
     prompt_sistema = f"""
-Você é um assistente de análise de efetivo integrado a um dashboard Streamlit.
-Responda em português brasileiro, com clareza e objetividade.
-Use exclusivamente os indicadores agregados fornecidos abaixo.
-Não invente dados. Se a informação não puder ser calculada a partir do resumo,
-explique essa limitação e sugira usar os filtros ou a pesquisa do painel.
-Nunca solicite nem tente inferir nomes, matrículas, e-mails, telefones,
-endereços, números de processos SEI ou detalhes pessoais individuais.
-Os dados abaixo contêm somente contagens e distribuições agregadas, sem linhas
-individuais nem identificadores pessoais.
+Você é um assistente analítico integrado a um dashboard de relatórios.
+Responda em português brasileiro de forma clara e objetiva.
+Use exclusivamente os dados agregados e o contexto fornecidos abaixo. Não invente informações.
+Não solicite nem revele dados pessoais sensíveis individuais.
 
-Resumo agregado do painel:
+Resumo dos dados da aba selecionada:
 {resumo}
 """
 
-    for tentativa in range(2):
-        try:
-            model = genai.GenerativeModel("gemini-1.5-flash")
-            resposta = model.generate_content([prompt_sistema, f"Pergunta do usuário: {pergunta}"])
-            texto_resposta = getattr(resposta, "text", None)
-            return texto_resposta or "O Gemini não retornou uma resposta textual."
-        except Exception as erro:
-            erro_texto = str(erro)
-            if ("503" in erro_texto or "UNAVAILABLE" in erro_texto.upper()) and tentativa == 0:
-                time.sleep(2)
-                continue
-            if "429" in erro_texto or "RESOURCE_EXHAUSTED" in erro_texto.upper():
-                return "O limite de requisições do Gemini foi atingido. Aguarde um pouco e tente novamente."
-            if "503" in erro_texto or "UNAVAILABLE" in erro_texto.upper():
-                return "O serviço do Gemini está temporariamente indisponível. Tente novamente em instantes."
-            return f"Erro técnico retornado: {erro_texto}"
-
+    try:
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        resposta = model.generate_content([prompt_sistema, f"Pergunta: {pergunta}"])
+        return resposta.text or "O Gemini não retornou uma resposta textual."
+    except Exception as e:
+        return f"Erro ao consultar o Gemini: {e}"
 
 # =========================================================
-# INTERFACE DO STREAMLIT
+# 3. INTERFACE DO DASHBOARD
 # =========================================================
+st.title("📊 Painel de Relatórios e Gestão")
 
-st.title("📊 Painel de Gestão de Efetivo")
+try:
+    sh = conectar_google_sheets()
+    # Lista o nome de todas as abas da planilha
+    abas_disponiveis = [ws.title for ws in sh.worksheets()]
+except Exception as e:
+    st.error(f"Não foi possível conectar à planilha. Verifique as permissões e os Secrets. Detalhe: {e}")
+    abas_disponiveis = []
 
-if "df_filtrado" not in st.session_state:
-    st.session_state.df_filtrado = pd.DataFrame()
+if abas_disponiveis:
+    # Menu lateral para selecionar a aba que deseja visualizar
+    st.sidebar.header("🗂️ Navegação")
+    aba_selecionada = st.sidebar.selectbox("Selecione a Aba da Planilha:", abas_disponiveis)
 
-df_filtrado = st.session_state.df_filtrado
+    # Carrega os dados da aba escolhida
+    df = carregar_aba(aba_selecionada)
 
-st.subheader("💬 Chatbot de consulta com Gemini")
-st.write(
-    "Faça perguntas sobre totais, distribuições e qualidade do preenchimento. "
-    "O chatbot considera a unidade e os filtros selecionados e recebe apenas dados agregados."
-)
+    if not df.empty:
+        st.subheader(f"Visualizando Aba: {aba_selecionada}")
+        
+        # Filtros básicos na barra lateral
+        st.sidebar.divider()
+        st.sidebar.header("🔍 Filtros")
+        
+        # Exemplo de filtro dinâmico por coluna se houver dados
+        colunas_filtro = [c for c in df.columns if df[c].dtype == 'object']
+        df_filtrado = df.copy()
+        
+        if colunas_filtro:
+            col_escolhida = st.sidebar.selectbox("Filtrar por coluna:", ["Nenhum"] + colunas_filtro)
+            if col_escolhida != "Nenhum":
+                valores_unicos = ["Todos"] + list(df[col_escolhida].unique())
+                val_filtro = st.sidebar.selectbox(f"Selecione o valor para {col_escolhida}:", valores_unicos)
+                if val_filtro != "Todos":
+                    df_filtrado = df[df[col_escolhida] == val_filtro]
 
-if "historico_chat" not in st.session_state:
-    st.session_state.historico_chat = []
+        # Exibição da tabela de dados filtrados
+        st.dataframe(df_filtrado, use_container_width=True)
+        st.caption(f"Total de registros exibidos: {len(df_filtrado)} de {len(df)}")
 
-for mensagem in st.session_state.historico_chat:
-    with st.chat_message(mensagem["role"]):
-        st.markdown(mensagem["content"])
+        # =====================================================
+        # 4. CHATBOT GEMINI INTEGRADO
+        # =====================================================
+        st.divider()
+        st.subheader("💬 Chatbot de Consulta com Gemini (Gratuito)")
+        st.write("Faça perguntas sobre os dados da aba que está visualizando no momento.")
 
-pergunta = st.chat_input(
-    "Ex.: Quantos militares estão readaptados nesta unidade?"
-)
+        if "historico_chat" not in st.session_state:
+            st.session_state.historico_chat = []
 
-if pergunta:
-    st.session_state.historico_chat.append({"role": "user", "content": pergunta})
-    resposta = responder_chatbot(pergunta, df_filtrado)
-    st.session_state.historico_chat.append({"role": "assistant", "content": resposta})
-    st.rerun()
+        for mensagem in st.session_state.historico_chat:
+            with st.chat_message(mensagem["role"]):
+                st.markdown(mensagem["content"])
 
+        pergunta = st.chat_input("Ex.: Faça um resumo dos dados desta aba...")
 
-# =========================================================
-# RODAPÉ
-# =========================================================
+        if pergunta:
+            st.session_state.historico_chat.append({"role": "user", "content": pergunta})
+            resposta = responder_chatbot(pergunta, df_filtrado)
+            st.session_state.historico_chat.append({"role": "assistant", "content": resposta})
+            st.rerun()
+
+    else:
+        st.warning("A aba selecionada está vazia ou não pôde ser lida.")
+else:
+    st.info("Aguardando configuração correta da planilha e permissões para exibir as abas.")
+
+# Rodapé
 st.divider()
-st.caption("Painel de Gestão de Efetivo • Desenvolvido com Streamlit e Google Gemini")
+st.caption("Painel integrado com Google Sheets e Google Gemini • Uso Interno")
