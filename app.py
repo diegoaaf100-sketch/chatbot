@@ -126,10 +126,11 @@ individuais nem identificadores pessoais.
 Resumo agregado do painel:
 {resumo}
 """
+    # Lista atualizada focada nos modelos padrão aceitos pelo SDK moderno
     modelos_para_tentar = [
-        "gemini-2.0-flash",
-        "gemini-1.5-flash-latest",
-        "gemini-1.5-flash-002",
+        "gemini-2.5-flash",
+        "gemini-2.0-flash-exp",
+        "gemini-1.5-flash",
         "gemini-1.5-pro",
     ]
 
@@ -150,6 +151,7 @@ Resumo agregado do painel:
                 erro_texto = str(erro)
                 ultimo_erro = erro_texto
                 
+                # Se o erro for 404, pula imediatamente para o próximo modelo da lista
                 if "404" in erro_texto or "NOT_FOUND" in erro_texto.upper():
                     break
                 
