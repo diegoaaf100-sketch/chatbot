@@ -1,10 +1,11 @@
 import os
 import time
+import json
+import requests
 import pandas as pd
 import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
-import google.generativeai as genai
 
 # Configuração da página do Streamlit
 st.set_page_config(page_title="Painel de Gestão de Efetivo", page_icon="🛡️", layout="wide")
@@ -96,11 +97,9 @@ def carregar_aba(nome_aba: str) -> pd.DataFrame:
         return pd.DataFrame()
 
 # =========================================================
-# 2. CONFIGURAÇÃO DO GEMINI (Biblioteca Clássica e Estável)
+# 2. CONFIGURAÇÃO DO GEMINI (Via API REST Direta)
 # =========================================================
 api_key = st.secrets.get("GEMINI_API_KEY", "")
-if api_key:
-    genai.configure(api_key=api_key)
 
 def resumo_para_ia(df: pd.DataFrame) -> dict:
     return {
@@ -117,28 +116,32 @@ def responder_chatbot(pergunta: str, dados: pd.DataFrame) -> str:
 
     resumo = resumo_para_ia(dados)
     prompt_completo = f"""
-[INSTRUÇÕES DO SISTEMA]
-Você é um assistente analítico de efetivo militar integrado a um dashboard Streamlit.
-Responda em português brasileiro de forma clara, estritamente objetiva e formal.
-Use exclusivamente os indicadores agregados fornecidos abaixo. Não invente dados.
-Nunca solicite nem tente inferir nomes, matrículas, e-mails, telefones ou detalhes pessoais individuais.
-
-Resumo agregado dos dados selecionados atualmente:
+Assistente analítico de efetivo militar. Responda em português de forma formal, objetiva e com base exclusivamente nestes dados agregados:
 {resumo}
 
-[PERGUNTA DO USUÁRIO]
-{pergunta}
+Pergunta: {pergunta}
 """
 
+    # URL oficial da API REST do Gemini (v1beta com gemini-1.5-flash)
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    
+    headers = {'Content-Type': 'application/json'}
+    payload = {
+        "contents": [{
+            "parts": [{"text": prompt_completo}]
+        }]
+    }
+
     try:
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        resposta = model.generate_content(prompt_completo)
-        if resposta and resposta.text:
-            return resposta.text
+        response = requests.post(url, headers=headers, data=json.dumps(payload), timeout=15)
+        if response.status_code == 200:
+            res_json = response.json()
+            texto_resposta = res_json["candidates"][0]["content"]["parts"][0]["text"]
+            return texto_resposta
+        else:
+            return f"⚠️ Erro HTTP na API ({response.status_code}): {response.text}"
     except Exception as e:
-        return f"⚠️ Erro técnico na API do Gemini: {str(e)}"
-            
-    return "⚠️ O Gemini retornou uma resposta vazia."
+        return f"⚠️ Erro de conexão com a API: {str(e)}"
 
 # =========================================================
 # 3. INTERFACE DO DASHBOARD NO STREAMLIT
@@ -234,7 +237,7 @@ if not df.empty:
                 contagem_postos = df_filtrado["Posto / Graduação"].value_counts()
                 st.bar_chart(contagem_postos)
             else:
-                st.info("Coluna 'Posto / Graduação' não encontrada para o gráfico.")
+                st.info("Coluna 'Posto / Graduação' não encontrada para el gráfico.")
                 
         with gcol2:
             if "Quadro" in df_filtrado.columns:
@@ -242,7 +245,7 @@ if not df.empty:
                 contagem_quadros = df_filtrado["Quadro"].value_counts()
                 st.bar_chart(contagem_quadros)
             else:
-                st.info("Coluna 'Quadro' não encontrada para o gráfico.")
+                st.info("Coluna 'Quadro' não encontrada para el gráfico.")
 
     # =========================================================
     # 4. CHATBOT GEMINI INTEGRADO
