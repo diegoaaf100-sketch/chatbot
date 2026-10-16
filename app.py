@@ -122,8 +122,7 @@ Assistente analítico de efetivo militar. Responda em português de forma formal
 Pergunta: {pergunta}
 """
 
-    # URL oficial da API REST do Gemini (v1beta com gemini-1.5-flash)
-   url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
     
     headers = {'Content-Type': 'application/json'}
     payload = {
