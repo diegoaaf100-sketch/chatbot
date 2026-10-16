@@ -37,7 +37,7 @@ def conectar_google_sheets():
 
 @st.cache_data(ttl=600)
 def carregar_aba(nome_aba: str) -> pd.DataFrame:
-    """Carrega uma aba específica da planilha de forma blindada contra erros de tipo (AttrDict)"""
+    """Carrega uma aba específica da planilha de forma blindada (cabeçalho na linha 2)"""
     try:
         sh = conectar_google_sheets()
         worksheets = sh.worksheets()
@@ -51,47 +51,36 @@ def carregar_aba(nome_aba: str) -> pd.DataFrame:
                 break
                 
         if ws_alvo:
-            # Puxa os dados utilizando get_values para garantir matriz de texto pura
-            todos_valores = ws_alvo.get_values()
-            
-            if len(todos_valores) < 2:
-                return pd.DataFrame()
+            try:
+                # Tenta usar o parâmetro nativo head=2 do gspread moderno
+                dados_dict = ws_alvo.get_all_records(head=2)
+            except Exception:
+                # Fallback seguro caso ocorra incompatibilidade
+                valores = ws_alvo.get_values()
+                if len(valores) < 2:
+                    return pd.DataFrame()
+                cabecalho = [str(c).strip() for c in valores[1]]
+                linhas = valores[2:]
                 
-            # Converte absolutamente tudo para string para eliminar qualquer AttrDict
-            dados_str = []
-            for linha in todos_valores:
-                linha_convertida = []
-                for celula in linha:
-                    # Se por acaso vier um objeto complexo, converte para string
-                    linha_convertida.append(str(celula) if celula is not None else "")
-                dados_str.append(linha_convertida)
-            
-            # A linha 2 (índice 1) é o cabeçalho
-            cabecalho = [c.strip() for c in dados_str[1]]
-            
-            # Da linha 3 em diante (índice 2) são os dados
-            linhas_dados = dados_str[2:]
-            
-            # Padroniza o número de colunas
-            num_colunas = len(cabecalho)
-            linhas_ajustadas = []
-            for linha in linhas_dados:
-                if len(linha) < num_colunas:
-                    linha.extend([""] * (num_colunas - len(linha)))
-                else:
-                    linha = linha[:num_colunas]
-                linhas_ajustadas.append(linha)
-            
-            df = pd.DataFrame(linhas_ajustadas, columns=cabecalho)
+                dados_dict = []
+                for linha in linhas:
+                    while len(linha) < len(cabecalho):
+                        linha.append("")
+                    item = {cabecalho[i]: str(linha[i]) if i < len(linha) and linha[i] is not None else "" for i in range(len(cabecalho))}
+                    dados_dict.append(item)
+
+            df = pd.DataFrame(dados_dict)
             df = df.dropna(how="all")
-            df = df.loc[:, df.columns != ""]
-            
+            if "" in df.columns:
+                df = df.drop(columns=[""])
+                
             return df
         else:
             return pd.DataFrame()
     except Exception as e:
         st.error(f"Erro ao processar os dados da aba {nome_aba}: {e}")
         return pd.DataFrame()
+
 # =========================================================
 # 2. CONFIGURAÇÃO DO GEMINI (SDK MODERNO)
 # =========================================================
