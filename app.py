@@ -170,7 +170,7 @@ def processar_relatorio_chat(pergunta: str, df: pd.DataFrame) -> dict:
             df_temp = df_temp.sort_values(by=col_nome, key=lambda x: x.astype(str).str.lower(), ascending=True)
             
         cols_exibicao = [c for c in [buscar_coluna(df, ["matricula"]), buscar_coluna(df, ["nome"]), col_nome, col_extra] if c and c in df_temp.columns]
-        cols_exibicao = list(dict.from_keys(cols_exibicao))
+        cols_exibicao = list(dict.fromkeys(cols_exibicao))
         
         df_resumido = df_temp[cols_exibicao] if cols_exibicao else df_temp
         
