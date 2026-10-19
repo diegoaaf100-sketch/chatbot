@@ -192,18 +192,17 @@ Pergunta: {pergunta}
 # 3. INTERFACE DO DASHBOARD NO STREAMLIT
 # =========================================================
 
-# --- NOVO CABEÇALHO COM IMAGENS E TÍTULO CENTRALIZADOS ---
+# Cabeçalho com imagens centralizadas lado a lado e título abaixo
 col_esq, col_img1, col_img2, col_dir = st.columns([1, 2, 2, 1])
 
 with col_img1:
-    # Substitua pelo caminho da sua 1ª imagem (local, URL ou base64)
-    st.image("logo1.png", use_container_width=True)
+    # Substitua pelo nome do arquivo ou link da sua primeira imagem
+    st.image("brasao_cbmpe.png", use_container_width=True)
 
 with col_img2:
-    # Substitua pelo caminho da sua 2ª imagem (local, URL ou base64)
-    st.image("logo2.png", use_container_width=True)
+    # Substitua pelo nome do arquivo ou link da sua segunda imagem
+    st.image("brasao_dgp.png", use_container_width=True)
 
-# Título centralizado abaixo das imagens
 st.markdown("<h1 style='text-align: center;'>Relatório do Efetivo</h1>", unsafe_allow_html=True)
 st.divider()
 
