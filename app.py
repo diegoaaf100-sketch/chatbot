@@ -80,13 +80,19 @@ def conectar_google_sheets():
     return client.open_by_url(spreadsheet_url)
 
 def processar_matriz_aba(matriz, nome_aba):
-    """Lê a matriz de dados ignorando a linha 1 (metadados) e usando a linha 2 estritamente como cabeçalho."""
-    if not matriz or len(matriz) < 2:
+    """Varre as primeiras linhas para encontrar onde realmente está o cabeçalho oficial e descarta metadados."""
+    if not matriz or len(matriz) < 1:
         return pd.DataFrame()
     
-    idx_cabecalho = 1
-    if len(matriz) <= idx_cabecalho:
-        return pd.DataFrame()
+    idx_cabecalho = None
+    for i, linha in enumerate(matriz[:10]):
+        linha_texto = " ".join([str(c).strip().lower() for c in linha if c is not None])
+        if "posto" in linha_texto or "matricula" in linha_texto or "matrícula" in linha_texto:
+            idx_cabecalho = i
+            break
+            
+    if idx_cabecalho is None:
+        idx_cabecalho = 1 if len(matriz) > 1 else 0
         
     cabecalho_bruto = matriz[idx_cabecalho]
     
@@ -99,7 +105,7 @@ def processar_matriz_aba(matriz, nome_aba):
     dados_estruturados = []
     for linha in linhas:
         linha_str = " ".join([str(c).strip().lower() for c in linha if c is not None])
-        if not any(str(c).strip() for c in linha) or "atualizado em" in linha_str:
+        if not any(str(c).strip() for c in linha) or "atualizado em" in linha_str or "posto / graduacao" in linha_str or "posto" in linha_str:
             continue
             
         item = {}
