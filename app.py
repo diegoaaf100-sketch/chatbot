@@ -80,42 +80,26 @@ def conectar_google_sheets():
     return client.open_by_url(spreadsheet_url)
 
 def processar_matriz_aba(matriz, nome_aba):
-    """Transforma a matriz bruta de valores da aba em DataFrame identificando a linha exata do cabeçalho."""
-    if not matriz or len(matriz) < 1:
+    """Lê a matriz de dados com cabeçalho padronizado estritamente na Linha 2 (índice 1)."""
+    if not matriz or len(matriz) < 2:
         return pd.DataFrame()
     
-    idx_cabecalho = None
-    palavras_chave_cabecalho = ["posto", "graduacao", "matricula", "nome", "ome", "quadro", "militar"]
+    # O cabeçalho fica padronizado na linha 2 da planilha (índice 1)
+    idx_cabecalho = 1
     
-    for i, linha in enumerate(matriz[:10]):
-        linha_unida = " ".join([str(c).strip().lower() for c in linha if c is not None])
-        if "atualizado em" in linha_unida or "atualizado:" in linha_unida:
-            continue
-        if any(kw in linha_unida for kw in palavras_chave_cabecalho):
-            idx_cabecalho = i
-            break
-
-    if idx_cabecalho is None:
-        for i, linha in enumerate(matriz[:5]):
-            linha_unida = " ".join([str(c).strip().lower() for c in linha if c is not None])
-            if "atualizado em" not in linha_unida and any(str(c).strip() for c in linha):
-                idx_cabecalho = i
-                break
-
-    if idx_cabecalho is None:
-        idx_cabecalho = 0
-
     cabecalho_bruto = matriz[idx_cabecalho]
+    
+    # Remove colunas totalmente vazias do final do cabeçalho
     while cabecalho_bruto and not str(cabecalho_bruto[-1]).strip():
         cabecalho_bruto.pop()
         
     cabecalho = [str(c).strip() if str(c).strip() != "" else f"Coluna_{idx}" for idx, c in enumerate(cabecalho_bruto)]
-    linhas = matriz[idx_cabecalho + 1:]
+    linhas = matriz[idx_cabecalho + 1:] # Linha 3 em diante
     
     dados_estruturados = []
     for linha in linhas:
-        linha_str = " ".join([str(c).strip().lower() for c in linha if c is not None])
-        if not any(str(c).strip() for c in linha) or "atualizado em" in linha_str or "posto / graduacao" in linha_str:
+        # Descarta linhas completamente vazias
+        if not any(str(c).strip() for c in linha):
             continue
             
         item = {}
@@ -130,6 +114,7 @@ def processar_matriz_aba(matriz, nome_aba):
     df = pd.DataFrame(dados_estruturados)
     df = df.dropna(how="all")
     
+    # Normaliza nome da coluna Matrícula
     novos_nomes = {}
     for col in df.columns:
         col_lower = str(col).lower()
@@ -281,191 +266,4 @@ def processar_relatorio_chat(pergunta: str, df: pd.DataFrame) -> dict:
         return gerar_resposta(col_cid, "Relatório de Militares por Cidade")
 
     # 10. Acumulação de Cargo
-    elif "acumulacao" in p or "cargo" in p:
-        col_ac = buscar_coluna(df, ["acumulacao de cargo publico", "acumulacao de cargo", "acumulacao", "cargo"])
-        return gerar_resposta(col_ac, "Relatório de Militares por Acumulação de Cargo Público")
-
-    # 11. Afastamento
-    elif "afastamento" in p or "licenca" in p:
-        col_af = buscar_coluna(df, ["afastamento", "status", "situacao"])
-        col_tipo = buscar_coluna(df, ["tipo de afastamento", "motivo", "tipo"])
-        return gerar_resposta(col_af, "Relatório de Militares por Afastamento e Tipo de Afastamento", col_extra=col_tipo)
-
-    else:
-        return {
-            "texto": (
-                "🤖 **Menu de Relatórios Automatizados:**\n\n"
-                "Digite uma das opções abaixo para gerar o relatório desejado:\n"
-                "• Relatório de militares por ordem alfabética\n"
-                "• Relatório de militares por OME\n"
-                "• Relatório de militares por OME e seção\n"
-                "• Relatório de militares por matrícula em ordem numérica\n"
-                "• Relatório de militares por nome em ordem alfabética\n"
-                "• Relatório de militares por nome de guerra em ordem alfabética\n"
-                "• Relatório de militares por escolaridade\n"
-                "• Relatório de militares por área de formação\n"
-                "• Relatório de militares por área de formação 2\n"
-                "• Relatório de militares por cidade\n"
-                "• Relatório de militares por acumulação de cargo público\n"
-                "• Relatório de militares por afastamento e tipo de afastamento"
-            )
-        }
-
-# =========================================================
-# 3. INTERFACE DO DASHBOARD NO STREAMLIT
-# =========================================================
-
-st.markdown("""
-    <style>
-    [data-testid="stImage"] img {
-        border-radius: 50%;
-    }
-    </style>
-""", unsafe_allow_html=True)
-
-col_esq, col_img1, col_img2, col_dir = st.columns([2.5, 1, 1, 2.5])
-
-with col_img1:
-    st.image("brasao_cbmpe.png", use_container_width=True)
-
-with col_img2:
-    st.image("brasao_dgp.png", use_container_width=True)
-
-st.markdown("<h1 style='text-align: center;'>Relatório do Efetivo</h1>", unsafe_allow_html=True)
-st.divider()
-
-if aba_selecionada == "🔍 VISÃO GERAL":
-    if todas_abas:
-        df = pd.concat(list(todas_abas.values()), ignore_index=True)
-    else:
-        df = pd.DataFrame()
-else:
-    df = todas_abas.get(aba_selecionada, pd.DataFrame())
-
-if not df.empty:
-    st.sidebar.divider()
-    st.sidebar.header("🔍 Filtros por Coluna")
-    
-    df_filtrado = df.copy()
-
-    for idx, coluna in enumerate(df.columns):
-        if coluna == "Unidade_Origem":
-            continue
-            
-        valores_unicos = df[coluna].dropna().unique()
-        
-        if len(valores_unicos) <= 25 and len(valores_unicos) > 1:
-            opcoes = sorted([str(v) for v in valores_unicos if str(v).strip() != ""])
-            if opcoes:
-                selecao = st.sidebar.multiselect(f"Filtrar {coluna}:", options=opcoes, key=f"multiselect_{idx}")
-                if selecao:
-                    df_filtrado = df_filtrado[df_filtrado[coluna].astype(str).isin(selecao)]
-        else:
-            busca = st.sidebar.text_input(f"Buscar em {coluna}:", key=f"search_{idx}")
-            if busca:
-                df_filtrado = df_filtrado[df_filtrado[coluna].astype(str).str.lower().str.contains(busca.lower(), na=False)]
-
-    st.subheader(f"Efetivo: {aba_selecionada}")
-    
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric("Total de Militares", len(df_filtrado))
-    with col2:
-        readaptados = (df_filtrado["Militar Readaptado"].astype(str).str.lower().isin(["sim", "s", "true", "1"])).sum() if "Militar Readaptado" in df_filtrado.columns else 0
-        st.metric("Readaptados", int(readaptados))
-    with col3:
-        pcd = (df_filtrado["Militar PCD"].astype(str).str.lower().isin(["sim", "s", "true", "1"])).sum() if "Militar PCD" in df_filtrado.columns else 0
-        st.metric("PCD", int(pcd))
-    with col4:
-        punidos = df_filtrado["Punição"].astype(str).str.strip().ne("").sum() if "Punição" in df_filtrado.columns else 0
-        st.metric("Com Punição Registrada", int(punidos))
-
-    st.divider()
-
-    st.markdown(f"### Registros ({len(df_filtrado)} encontrados)")
-    st.dataframe(df_filtrado, width='stretch')
-
-    csv = df_filtrado.to_csv(index=False).encode('utf-8')
-    st.download_button(
-        label="📥 Baixar Relatório Consolidado em CSV",
-        data=csv,
-        file_name=f"relatorio_efetivo_{aba_selecionada.lower().replace(' ', '_')}.csv",
-        mime='text/csv',
-        key="download_consolidado"
-    )
-
-    if not df_filtrado.empty:
-        st.divider()
-        st.subheader("📊 Análise Gráfica do Efetivo Filtrado")
-        
-        gcol1, gcol2 = st.columns(2)
-        
-        with gcol1:
-            col_posto_dash = buscar_coluna(df_filtrado, ["posto / graduacao", "posto/graduacao", "posto", "graduacao"])
-            if col_posto_dash and col_posto_dash in df_filtrado.columns:
-                st.markdown("**Distribuição por Posto / Graduação**")
-                contagem_postos = df_filtrado[col_posto_dash].value_counts()
-                st.bar_chart(contagem_postos)
-            else:
-                st.info("Coluna 'Posto / Graduação' não encontrada para o gráfico.")
-                
-        with gcol2:
-            col_ome_dash = buscar_coluna(df_filtrado, ["ome", "unidade_origem", "unidade", "lotacao", "lotação"])
-            if col_ome_dash and col_ome_dash in df_filtrado.columns:
-                st.markdown("**Distribuição por OME**")
-                contagem_ome = df_filtrado[col_ome_dash].value_counts()
-                st.bar_chart(contagem_ome)
-            else:
-                st.info("Coluna 'OME' não encontrada para o gráfico.")
-
-    st.divider()
-    st.subheader("💬 Chatbot Gerador de Relatórios")
-    st.write("Digite o relatório desejado (ex: *faça um relatório de militares por área de formação*).")
-
-    if "historico_chat" not in st.session_state:
-        st.session_state.historico_chat = []
-
-    for mensagem in st.session_state.historico_chat:
-        with st.chat_message(mensagem["role"]):
-            st.markdown(mensagem["content"])
-            if "df" in mensagem and mensagem["df"] is not None:
-                st.dataframe(mensagem["df"], width='stretch')
-                
-                col_grafico = mensagem.get("coluna_grafico")
-                if col_grafico and col_grafico in mensagem["df"].columns:
-                    dados_grafico = mensagem["df"][col_grafico].value_counts()
-                    if not dados_grafico.empty:
-                        st.markdown(f"**📊 Gráfico de Distribuição por {col_grafico}:**")
-                        st.bar_chart(dados_grafico)
-
-                csv_bytes = mensagem["df"].to_csv(index=False).encode('utf-8')
-                st.download_button(
-                    label="📥 Baixar Este Relatório em CSV",
-                    data=csv_bytes,
-                    file_name=mensagem.get("nome_arquivo", "relatorio.csv"),
-                    mime="text/csv",
-                    key=f"dl_{time.time()}_{hash(mensagem['content'])}"
-                )
-
-    pergunta = st.chat_input("Ex.: faça um relatório de militares por área de formação")
-
-    if pergunta:
-        st.session_state.historico_chat.append({"role": "user", "content": pergunta})
-        resultado = processar_relatorio_chat(pergunta, df_filtrado)
-        
-        item_resposta = {
-            "role": "assistant",
-            "content": resultado["texto"],
-            "df": resultado.get("df"),
-            "coluna_grafico": resultado.get("coluna_grafico"),
-            "nome_arquivo": resultado.get("nome_arquivo")
-        }
-        
-        st.session_state.historico_chat.append(item_resposta)
-        st.rerun()
-
-else:
-    st.warning("⚠️ Não foram encontrados dados para exibir nesta seleção. Verifique se a planilha contém linhas preenchidas.")
-
-st.divider()
-st.caption("Painel de Efetivo • Desenvolvido com Streamlit e Google Sheets API")
+    elif "acumulacao" in p or "cargo" in
