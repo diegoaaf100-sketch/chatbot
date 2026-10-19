@@ -84,21 +84,17 @@ def processar_matriz_aba(matriz, nome_aba):
     if not matriz or len(matriz) < 2:
         return pd.DataFrame()
     
-    # O cabeçalho fica padronizado na linha 2 da planilha (índice 1)
     idx_cabecalho = 1
-    
     cabecalho_bruto = matriz[idx_cabecalho]
     
-    # Remove colunas totalmente vazias do final do cabeçalho
     while cabecalho_bruto and not str(cabecalho_bruto[-1]).strip():
         cabecalho_bruto.pop()
         
     cabecalho = [str(c).strip() if str(c).strip() != "" else f"Coluna_{idx}" for idx, c in enumerate(cabecalho_bruto)]
-    linhas = matriz[idx_cabecalho + 1:] # Linha 3 em diante
+    linhas = matriz[idx_cabecalho + 1:]
     
     dados_estruturados = []
     for linha in linhas:
-        # Descarta linhas completamente vazias
         if not any(str(c).strip() for c in linha):
             continue
             
@@ -114,7 +110,6 @@ def processar_matriz_aba(matriz, nome_aba):
     df = pd.DataFrame(dados_estruturados)
     df = df.dropna(how="all")
     
-    # Normaliza nome da coluna Matrícula
     novos_nomes = {}
     for col in df.columns:
         col_lower = str(col).lower()
@@ -266,4 +261,96 @@ def processar_relatorio_chat(pergunta: str, df: pd.DataFrame) -> dict:
         return gerar_resposta(col_cid, "Relatório de Militares por Cidade")
 
     # 10. Acumulação de Cargo
-    elif "acumulacao" in p or "cargo" in
+    elif "acumulacao" in p or "cargo" in p:
+        col_ac = buscar_coluna(df, ["acumulacao de cargo publico", "acumulacao de cargo", "acumulacao", "cargo"])
+        return gerar_resposta(col_ac, "Relatório de Militares por Acumulação de Cargo Público")
+
+    # 11. Afastamento
+    elif "afastamento" in p or "licenca" in p:
+        col_af = buscar_coluna(df, ["afastamento", "status", "situacao"])
+        col_tipo = buscar_coluna(df, ["tipo de afastamento", "motivo", "tipo"])
+        return gerar_resposta(col_af, "Relatório de Militares por Afastamento e Tipo de Afastamento", col_extra=col_tipo)
+
+    else:
+        return {
+            "texto": (
+                "🤖 **Menu de Relatórios Automatizados:**\n\n"
+                "Digite uma das opções abaixo para gerar o relatório desejado:\n"
+                "• Relatório de militares por ordem alfabética\n"
+                "• Relatório de militares por OME\n"
+                "• Relatório de militares por OME e seção\n"
+                "• Relatório de militares por matrícula em ordem numérica\n"
+                "• Relatório de militares por nome em ordem alfabética\n"
+                "• Relatório de militares por nome de guerra em ordem alfabética\n"
+                "• Relatório de militares por escolaridade\n"
+                "• Relatório de militares por área de formação\n"
+                "• Relatório de militares por área de formação 2\n"
+                "• Relatório de militares por cidade\n"
+                "• Relatório de militares por acumulação de cargo público\n"
+                "• Relatório de militares por afastamento e tipo de afastamento"
+            )
+        }
+
+# =========================================================
+# 3. INTERFACE DO DASHBOARD NO STREAMLIT
+# =========================================================
+
+st.markdown("""
+    <style>
+    [data-testid="stImage"] img {
+        border-radius: 50%;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+col_esq, col_img1, col_img2, col_dir = st.columns([2.5, 1, 1, 2.5])
+
+with col_img1:
+    st.image("brasao_cbmpe.png", use_container_width=True)
+
+with col_img2:
+    st.image("brasao_dgp.png", use_container_width=True)
+
+st.markdown("<h1 style='text-align: center;'>Relatório do Efetivo</h1>", unsafe_allow_html=True)
+st.divider()
+
+if aba_selecionada == "🔍 VISÃO GERAL":
+    if todas_abas:
+        df = pd.concat(list(todas_abas.values()), ignore_index=True)
+    else:
+        df = pd.DataFrame()
+else:
+    df = todas_abas.get(aba_selecionada, pd.DataFrame())
+
+if not df.empty:
+    st.sidebar.divider()
+    st.sidebar.header("🔍 Filtros por Coluna")
+    
+    df_filtrado = df.copy()
+
+    for idx, coluna in enumerate(df.columns):
+        if coluna == "Unidade_Origem":
+            continue
+            
+        valores_unicos = df[coluna].dropna().unique()
+        
+        if len(valores_unicos) <= 25 and len(valores_unicos) > 1:
+            opcoes = sorted([str(v) for v in valores_unicos if str(v).strip() != ""])
+            if opcoes:
+                selecao = st.sidebar.multiselect(f"Filtrar {coluna}:", options=opcoes, key=f"multiselect_{idx}")
+                if selecao:
+                    df_filtrado = df_filtrado[df_filtrado[coluna].astype(str).isin(selecao)]
+        else:
+            busca = st.sidebar.text_input(f"Buscar em {coluna}:", key=f"search_{idx}")
+            if busca:
+                df_filtrado = df_filtrado[df_filtrado[coluna].astype(str).str.lower().str.contains(busca.lower(), na=False)]
+
+    st.subheader(f"Efetivo: {aba_selecionada}")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Total de Militares", len(df_filtrado))
+    with col2:
+        readaptados = (df_filtrado["Militar Readaptado"].astype(str).str.lower().isin(["sim", "s", "true", "1"])).sum() if "Militar Readaptado" in df_filtrado.columns else 0
+        st.metric("Readaptados", int(readaptados))
+    with col3:
