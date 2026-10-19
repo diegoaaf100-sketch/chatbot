@@ -295,4 +295,112 @@ if not df.empty:
         if len(valores_unicos) <= 25 and len(valores_unicos) > 1:
             opcoes = sorted([str(v) for v in valores_unicos if str(v).strip() != ""])
             if opcoes:
-                selecao = st.sidebar.multiselect(f"
+                selecao = st.sidebar.multiselect(f"Filtrar {coluna}:", options=opcoes)
+                if selecao:
+                    df_filtrado = df_filtrado[df_filtrado[coluna].astype(str).isin(selecao)]
+        else:
+            busca = st.sidebar.text_input(f"Buscar em {coluna}:")
+            if busca:
+                df_filtrado = df_filtrado[df_filtrado[coluna].astype(str).str.lower().str.contains(busca.lower(), na=False)]
+
+    st.subheader(f"Efetivo: {aba_selecionada}")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Total de Militares", len(df_filtrado))
+    with col2:
+        readaptados = (df_filtrado["Militar Readaptado"].astype(str).str.lower().isin(["sim", "s", "true", "1"])).sum() if "Militar Readaptado" in df_filtrado.columns else 0
+        st.metric("Readaptados", int(readaptados))
+    with col3:
+        pcd = (df_filtrado["Militar PCD"].astype(str).str.lower().isin(["sim", "s", "true", "1"])).sum() if "Militar PCD" in df_filtrado.columns else 0
+        st.metric("PCD", int(pcd))
+    with col4:
+        punidos = df_filtrado["Punição"].astype(str).str.strip().ne("").sum() if "Punição" in df_filtrado.columns else 0
+        st.metric("Com Punição Registrada", int(punidos))
+
+    st.divider()
+
+    st.markdown(f"### Registros ({len(df_filtrado)} encontrados)")
+    st.dataframe(df_filtrado, width='stretch')
+
+    csv = df_filtrado.to_csv(index=False).encode('utf-8')
+    st.download_button(
+        label="📥 Baixar Relatório Consolidado em CSV",
+        data=csv,
+        file_name=f"relatorio_efetivo_{aba_selecionada.lower().replace(' ', '_')}.csv",
+        mime='text/csv',
+    )
+
+    if not df_filtrado.empty:
+        st.divider()
+        st.subheader("📊 Análise Gráfica do Efetivo Filtrado")
+        
+        gcol1, gcol2 = st.columns(2)
+        
+        with gcol1:
+            if "Posto / Graduação" in df_filtrado.columns:
+                st.markdown("**Distribuição por Posto / Graduação**")
+                contagem_postos = df_filtrado["Posto / Graduação"].value_counts()
+                st.bar_chart(contagem_postos)
+            else:
+                st.info("Coluna 'Posto / Graduação' não encontrada para o gráfico.")
+                
+        with gcol2:
+            if "Quadro" in df_filtrado.columns:
+                st.markdown("**Distribuição por Quadro**")
+                contagem_quadros = df_filtrado["Quadro"].value_counts()
+                st.bar_chart(contagem_quadros)
+            else:
+                st.info("Coluna 'Quadro' não encontrada para o gráfico.")
+
+    st.divider()
+    st.subheader("💬 Chatbot Gerador de Relatórios")
+    st.write("Digite o relatório desejado (ex: *faça um relatório de militares por escolaridade*).")
+
+    if "historico_chat" not in st.session_state:
+        st.session_state.historico_chat = []
+
+    for mensagem in st.session_state.historico_chat:
+        with st.chat_message(mensagem["role"]):
+            st.markdown(mensagem["content"])
+            if "df" in mensagem and mensagem["df"] is not None:
+                st.dataframe(mensagem["df"], width='stretch')
+                
+                col_grafico = mensagem.get("coluna_grafico")
+                if col_grafico and col_grafico in mensagem["df"].columns:
+                    dados_grafico = mensagem["df"][col_grafico].value_counts()
+                    if not dados_grafico.empty:
+                        st.markdown(f"**📊 Gráfico de Distribuição por {col_grafico}:**")
+                        st.bar_chart(dados_grafico)
+
+                csv_bytes = mensagem["df"].to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    label="📥 Baixar Este Relatório em CSV",
+                    data=csv_bytes,
+                    file_name=mensagem.get("nome_arquivo", "relatorio.csv"),
+                    mime="text/csv",
+                    key=f"dl_{time.time()}_{hash(mensagem['content'])}"
+                )
+
+    pergunta = st.chat_input("Ex.: faça um relatório de militares por OME")
+
+    if pergunta:
+        st.session_state.historico_chat.append({"role": "user", "content": pergunta})
+        resultado = processar_relatorio_chat(pergunta, df_filtrado)
+        
+        item_resposta = {
+            "role": "assistant",
+            "content": resultado["texto"],
+            "df": resultado.get("df"),
+            "coluna_grafico": resultado.get("coluna_grafico"),
+            "nome_arquivo": resultado.get("nome_arquivo")
+        }
+        
+        st.session_state.historico_chat.append(item_resposta)
+        st.rerun()
+
+else:
+    st.warning("Não há dados disponíveis para exibir na seleção atual.")
+
+st.divider()
+st.caption("Painel de Efetivo • Desenvolvido com Streamlit e Google Sheets API")
