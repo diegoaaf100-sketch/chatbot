@@ -69,7 +69,7 @@ ABAS_VALIDAS = [
 ]
 
 # =========================================================
-# 1. CONEXÃO COM A PLANILHA PRIVADA
+# 1. CONEXÃO COM A PLANILHA PRIVADA E CARREGAMENTO DE ABAS
 # =========================================================
 @st.cache_resource
 def conectar_google_sheets():
@@ -90,7 +90,7 @@ def conectar_google_sheets():
     spreadsheet_url = spreadsheet_url.strip(" {}'\"")
     return client.open_by_url(spreadsheet_url)
 
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=1800) # Aumentado para 30 minutos de cache para evitar novas leituras desnecessárias
 def carregar_aba(nome_aba: str) -> pd.DataFrame:
     try:
         sh = conectar_google_sheets()
@@ -108,11 +108,13 @@ def carregar_aba(nome_aba: str) -> pd.DataFrame:
                 break
                 
         if ws_alvo:
+            # Adiciona uma pausa curta para respeitar os limites da API do Google (Rate Limit)
+            time.sleep(0.3)
             matriz = ws_alvo.get_all_values()
             if not matriz or len(matriz) < 1:
                 return pd.DataFrame()
             
-            # Localiza dinamicamente a linha do cabeçalho (primeira linha com dados relevantes)
+            # Localiza dinamicamente a linha do cabeçalho
             idx_cabecalho = 1 if len(matriz) > 1 and any(matriz[1]) else 0
             
             cabecalho = [str(c).strip() for c in matriz[idx_cabecalho]]
@@ -120,7 +122,7 @@ def carregar_aba(nome_aba: str) -> pd.DataFrame:
             
             dados_estruturados = []
             for linha in linhas:
-                if not any(linha): # Pula linhas totalmente vazias
+                if not any(linha):
                     continue
                 while len(linha) < len(cabecalho):
                     linha.append("")
@@ -147,7 +149,11 @@ def carregar_aba(nome_aba: str) -> pd.DataFrame:
         else:
             return pd.DataFrame()
     except Exception as e:
-        st.error(f"Erro ao carregar a aba '{nome_aba}': {e}")
+        # Se ocorrer erro 429, avisa de forma mais amigável
+        if "429" in str(e):
+            st.warning(f"⚠️ Limite de requisições do Google atingido ao carregar '{nome_aba}'. Aguarde um instante e recarregue a página.")
+        else:
+            st.error(f"Erro ao carregar a aba '{nome_aba}': {e}")
         return pd.DataFrame()
 
 # =========================================================
