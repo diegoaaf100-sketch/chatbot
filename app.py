@@ -3,6 +3,7 @@ import pandas as pd
 import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
+import time
 
 # Configuração da página do Streamlit
 st.set_page_config(page_title="Painel de Gestão de Efetivo", page_icon="🛡️", layout="wide")
@@ -140,10 +141,9 @@ def carregar_aba(nome_aba: str) -> pd.DataFrame:
         return pd.DataFrame()
 
 # =========================================================
-# 2. MOTOR DE RELATÓRIOS DO CHATBOT (SEM DEPENDÊNCIA DE API EXTERNA)
+# 2. MOTOR DE RELATÓRIOS DO CHATBOT (SEM DEPENDÊNCIA DE API)
 # =========================================================
 def buscar_coluna(df: pd.DataFrame, termos_busca: list) -> str:
-    """Procura por nomes de colunas flexíveis no DataFrame."""
     for col in df.columns:
         col_norm = ''.join(c for c in unicodedata.normalize('NFD', col) if unicodedata.category(c) != 'Mn').strip().lower()
         for termo in termos_busca:
@@ -157,10 +157,9 @@ def processar_relatorio_chat(pergunta: str, df: pd.DataFrame) -> dict:
     if df.empty:
         return {"texto": "⚠️ Não há dados disponíveis para gerar o relatório solicitado no momento."}
 
-    # Helper para ordenar por coluna existente
     def gerar_resposta(col_nome, titulo_relatorio, por_numero=False, col_extra=None):
         if not col_nome:
-            return {"texto": f"⚠️ Não foi possível localizar a coluna correspondente a este relatório na tabela (Colunas disponíveis: {', '.join(df.columns)})."}
+            return {"texto": f"⚠️ Não foi possível localizar a coluna correspondente a este relatório na tabela."}
         
         df_temp = df.copy()
         
@@ -171,7 +170,6 @@ def processar_relatorio_chat(pergunta: str, df: pd.DataFrame) -> dict:
             df_temp = df_temp.sort_values(by=col_nome, key=lambda x: x.astype(str).str.lower(), ascending=True)
             
         cols_exibicao = [c for c in [buscar_coluna(df, ["matricula"]), buscar_coluna(df, ["nome"]), col_nome, col_extra] if c and c in df_temp.columns]
-        # Remove duplicatas mantendo a ordem
         cols_exibicao = list(dict.from_keys(cols_exibicao))
         
         df_resumido = df_temp[cols_exibicao] if cols_exibicao else df_temp
@@ -182,22 +180,15 @@ def processar_relatorio_chat(pergunta: str, df: pd.DataFrame) -> dict:
             "nome_arquivo": f"{titulo_relatorio.lower().replace(' ', '_')}.csv"
         }
 
-    # 1. Por Matrícula em Ordem Numérica
     if "matricula" in p:
         col = buscar_coluna(df, ["matricula"])
         return gerar_resposta(col, "Relatorio de Militares por Matricula (Ordem Numerica)", por_numero=True)
-
-    # 2. Por Nome de Guerra
     elif "nome de guerra" in p or "guerra" in p:
         col = buscar_coluna(df, ["guerra", "nome de guerra"])
         return gerar_resposta(col, "Relatorio de Militares por Nome de Guerra")
-
-    # 3. Por Nome / Ordem Alfabética Geral
     elif "nome" in p or "alfabetica" in p or "alfabeto" in p:
         col = buscar_coluna(df, ["nome", "militar", "nome completo"])
         return gerar_resposta(col, "Relatorio de Militares por Ordem Alfabetica")
-
-    # 4. Por OME e Seção
     elif "secao" in p and "ome" in p:
         col_ome = buscar_coluna(df, ["ome", "unidade"])
         col_sec = buscar_coluna(df, ["secao", "seção", "subunidade"])
@@ -211,61 +202,45 @@ def processar_relatorio_chat(pergunta: str, df: pd.DataFrame) -> dict:
         else:
             col_target = col_ome or col_sec
             return gerar_resposta(col_target, "Relatorio por OME / Seção")
-
-    # 5. Por OME
     elif "ome" in p or "unidade" in p:
         col = buscar_coluna(df, ["ome", "unidade", "unidade_origem"])
         return gerar_resposta(col, "Relatorio de Militares por OME")
-
-    # 6. Por Área de Formação 2
     elif "formacao 2" in p or "area de formacao 2" in p:
         col = buscar_coluna(df, ["formacao 2", "area de formacao 2", "formacao2"])
         return gerar_resposta(col, "Relatorio de Militares por Area de Formacao 2")
-
-    # 7. Por Área de Formação
     elif "formacao" in p or "curso" in p:
         col = buscar_coluna(df, ["formacao", "area de formacao", "graduacao"])
         return gerar_resposta(col, "Relatorio de Militares por Area de Formacao")
-
-    # 8. Por Escolaridade
     elif "escolaridade" in p or "instrucao" in p:
         col = buscar_coluna(df, ["escolaridade", "instrucao", "grau"])
         return gerar_resposta(col, "Relatorio de Militares por Escolaridade")
-
-    # 9. Por Cidade
     elif "cidade" in p or "municipio" in p or "residencia" in p:
         col = buscar_coluna(df, ["cidade", "municipio", "residencia"])
         return gerar_resposta(col, "Relatorio de Militares por Cidade")
-
-    # 10. Por Acumulação de Cargo Público
     elif "acumulacao" in p or "cargo" in p:
         col = buscar_coluna(df, ["acumulacao", "cargo", "acumula"])
         return gerar_resposta(col, "Relatorio de Militares por Acumulacao de Cargo Publico")
-
-    # 11. Por Afastamento e Tipo de Afastamento
     elif "afastamento" in p or "licenca" in p:
         col_af = buscar_coluna(df, ["afastamento", "status"])
         col_tipo = buscar_coluna(df, ["tipo de afastamento", "motivo", "tipo"])
         return gerar_resposta(col_af, "Relatorio de Militares por Afastamento e Tipo de Afastamento", col_extra=col_tipo)
-
-    # Caso a pergunta não coincida com os comandos predefinidos
     else:
         return {
             "texto": (
                 "🤖 **Menu de Relatórios Automatizados:**\n\n"
-                "Digite uma das opções abaixo para gerar o relatório com os dados da seleção atual:\n"
-                "1. *Relatório de militares por ordem alfabética*\n"
-                "2. *Relatório de militares por OME*\n"
-                "3. *Relatório de militares por OME e seção*\n"
-                "4. *Relatório de militares por matrícula em ordem numérica*\n"
-                "5. *Relatório de militares por nome em ordem alfabética*\n"
-                "6. *Relatório de militares por nome de guerra em ordem alfabética*\n"
-                "7. *Relatório de militares por escolaridade*\n"
-                "8. *Relatório de militares por área de formação*\n"
-                "9. *Relatório de militares por área de formação 2*\n"
-                "10. *Relatório de militares por cidade*\n"
-                "11. *Relatório de militares por acumulação de cargo público*\n"
-                "12. *Relatório de militares por afastamento e tipo de afastamento*"
+                "Digite uma das opções abaixo para gerar o relatório desejado:\n"
+                "• Relatório de militares por ordem alfabética\n"
+                "• Relatório de militares por OME\n"
+                "• Relatório de militares por OME e seção\n"
+                "• Relatório de militares por matrícula em ordem numérica\n"
+                "• Relatório de militares por nome em ordem alfabética\n"
+                "• Relatório de militares por nome de guerra em ordem alfabética\n"
+                "• Relatório de militares por escolaridade\n"
+                "• Relatório de militares por área de formação\n"
+                "• Relatório de militares por área de formação 2\n"
+                "• Relatório de militares por cidade\n"
+                "• Relatório de militares por acumulação de cargo público\n"
+                "• Relatório de militares por afastamento e tipo de afastamento"
             )
         }
 
@@ -273,7 +248,6 @@ def processar_relatorio_chat(pergunta: str, df: pd.DataFrame) -> dict:
 # 3. INTERFACE DO DASHBOARD NO STREAMLIT
 # =========================================================
 
-# Estilo CSS para arredondar a imagem circular
 st.markdown("""
     <style>
     [data-testid="stImage"] img {
@@ -282,14 +256,13 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Cabeçalho com imagens centralizadas lado a lado e título abaixo
 col_esq, col_img1, col_img2, col_dir = st.columns([2.5, 1, 1, 2.5])
 
 with col_img1:
     st.image("brasao_cbmpe.png", use_container_width=True)
 
 with col_img2:
-    st.image("brasao_dgp.png", use_container_width=True)
+    st.image("logo2.png", use_container_width=True)
 
 st.markdown("<h1 style='text-align: center;'>Relatório do Efetivo</h1>", unsafe_allow_html=True)
 st.divider()
@@ -370,4 +343,58 @@ if not df.empty:
         with gcol1:
             if "Posto / Graduação" in df_filtrado.columns:
                 st.markdown("**Distribuição por Posto / Graduação**")
-                contagem_
+                contagem_postos = df_filtrado["Posto / Graduação"].value_counts()
+                st.bar_chart(contagem_postos)
+            else:
+                st.info("Coluna 'Posto / Graduação' não encontrada para o gráfico.")
+                
+        with gcol2:
+            if "Quadro" in df_filtrado.columns:
+                st.markdown("**Distribuição por Quadro**")
+                contagem_quadros = df_filtrado["Quadro"].value_counts()
+                st.bar_chart(contagem_quadros)
+            else:
+                st.info("Coluna 'Quadro' não encontrada para o gráfico.")
+
+    st.divider()
+    st.subheader("💬 Chatbot Gerador de Relatórios")
+    st.write("Digite o relatório desejado (ex: *faça um relatório de militares por OME*).")
+
+    if "historico_chat" not in st.session_state:
+        st.session_state.historico_chat = []
+
+    for mensagem in st.session_state.historico_chat:
+        with st.chat_message(mensagem["role"]):
+            st.markdown(mensagem["content"])
+            if "df" in mensagem and mensagem["df"] is not None:
+                st.dataframe(mensagem["df"], width='stretch')
+                csv_bytes = mensagem["df"].to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    label="📥 Baixar Este Relatório em CSV",
+                    data=csv_bytes,
+                    file_name=mensagem.get("nome_arquivo", "relatorio.csv"),
+                    mime="text/csv",
+                    key=f"dl_{time.time()}_{hash(mensagem['content'])}"
+                )
+
+    pergunta = st.chat_input("Ex.: faça um relatório de militares por OME")
+
+    if pergunta:
+        st.session_state.historico_chat.append({"role": "user", "content": pergunta})
+        resultado = processar_relatorio_chat(pergunta, df_filtrado)
+        
+        item_resposta = {
+            "role": "assistant",
+            "content": resultado["texto"],
+            "df": resultado.get("df"),
+            "nome_arquivo": resultado.get("nome_arquivo")
+        }
+        
+        st.session_state.historico_chat.append(item_resposta)
+        st.rerun()
+
+else:
+    st.warning("Não há dados disponíveis para exibir na seleção atual.")
+
+st.divider()
+st.caption("Painel de Efetivo • Desenvolvido com Streamlit e Google Sheets API")
