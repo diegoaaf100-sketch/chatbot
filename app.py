@@ -98,7 +98,7 @@ def carregar_aba(nome_aba: str) -> pd.DataFrame:
         ws_alvo = None
         
         def normalizar(texto):
-            return ''.join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn').strip().lower().replace("º", "°")
+            return ''.join(c for c in unicodedata.normalize('NFD', str(texto)) if unicodedata.category(c) != 'Mn').strip().lower().replace("º", "°")
         
         alvo_normalizado = normalizar(nome_aba)
         
@@ -109,21 +109,30 @@ def carregar_aba(nome_aba: str) -> pd.DataFrame:
                 
         if ws_alvo:
             matriz = ws_alvo.get_all_values()
-            if len(matriz) < 2:
+            if not matriz or len(matriz) < 1:
                 return pd.DataFrame()
-                
-            cabecalho = [str(c).strip() for c in matriz[1]]
-            linhas = matriz[2:]
+            
+            # Localiza dinamicamente a linha do cabeçalho (primeira linha com dados relevantes)
+            idx_cabecalho = 1 if len(matriz) > 1 and any(matriz[1]) else 0
+            
+            cabecalho = [str(c).strip() for c in matriz[idx_cabecalho]]
+            linhas = matriz[idx_cabecalho + 1:]
             
             dados_estruturados = []
             for linha in linhas:
+                if not any(linha): # Pula linhas totalmente vazias
+                    continue
                 while len(linha) < len(cabecalho):
                     linha.append("")
-                item = {cabecalho[i]: str(linha[i]) if i < len(linha) and linha[i] is not None else "" for i in range(len(cabecalho))}
+                item = {cabecalho[i]: str(linha[i]).strip() if i < len(linha) and linha[i] is not None else "" for i in range(len(cabecalho))}
                 dados_estruturados.append(item)
                 
+            if not dados_estruturados:
+                return pd.DataFrame()
+
             df = pd.DataFrame(dados_estruturados)
             df = df.dropna(how="all")
+            
             if "" in df.columns:
                 df = df.drop(columns=[""])
                 
@@ -138,6 +147,7 @@ def carregar_aba(nome_aba: str) -> pd.DataFrame:
         else:
             return pd.DataFrame()
     except Exception as e:
+        st.error(f"Erro ao carregar a aba '{nome_aba}': {e}")
         return pd.DataFrame()
 
 # =========================================================
