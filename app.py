@@ -262,7 +262,7 @@ with col_img1:
     st.image("brasao_cbmpe.png", use_container_width=True)
 
 with col_img2:
-    st.image("logo2.png", use_container_width=True)
+    st.image("brasao_dgp.png", use_container_width=True)
 
 st.markdown("<h1 style='text-align: center;'>Relatório do Efetivo</h1>", unsafe_allow_html=True)
 st.divider()
