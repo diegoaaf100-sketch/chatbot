@@ -186,6 +186,8 @@ def processar_relatorio_chat(pergunta: str, df: pd.DataFrame) -> dict:
         aviso_coluna = ""
         if col_alvo and col_alvo not in [col_posto, col_matricula, col_nome, col_ome]:
             aviso_coluna = f"\n📌 Coluna exibida no relatório: **{col_alvo}**"
+        elif not col_alvo:
+            aviso_coluna = f"\n⚠️ *Coluna específica não localizada no cabeçalho da planilha. Mostrando colunas padrão.*"
         
         return {
             "texto": f"📋 **{titulo_relatorio}**{aviso_coluna}\n\nTotal de registros: **{len(df_temp)}**",
@@ -194,37 +196,59 @@ def processar_relatorio_chat(pergunta: str, df: pd.DataFrame) -> dict:
             "nome_arquivo": f"{titulo_relatorio.lower().replace(' ', '_')}.csv"
         }
 
+    # 1. Matrícula
     if "matricula" in p:
         return gerar_resposta(col_matricula, "Relatório de Militares por Matrícula", por_numero=True)
+
+    # 2. Nome de Guerra
     elif "nome de guerra" in p or "guerra" in p:
         col_guerra = buscar_coluna(df, ["guerra", "nome de guerra", "nome_guerra"])
         return gerar_resposta(col_guerra, "Relatório de Militares por Nome de Guerra")
+
+    # 3. Nome / Ordem Alfabética
     elif "nome" in p or "alfabetica" in p or "alfabeto" in p:
         return gerar_resposta(col_nome, "Relatório de Militares por Ordem Alfabética")
+
+    # 4. OME e Seção
     elif "secao" in p and "ome" in p:
         col_sec = buscar_coluna(df, ["secao", "seção", "subunidade", "divisao", "setor"])
         return gerar_resposta(col_ome, "Relatório de Militares por OME e Seção", col_extra=col_sec)
+
+    # 5. OME
     elif "ome" in p or "unidade" in p:
         return gerar_resposta(col_ome, "Relatório de Militares por OME")
-    elif "formacao 2" in p or "area de formacao 2" in p:
-        col_f2 = buscar_coluna(df, ["formacao 2", "area de formacao 2", "formacao2", "segunda formacao", "curso 2"])
+
+    # 6. Área de Formação 2 (verificado primeiro para não conflitar com a 1ª formação)
+    elif "formacao 2" in p or "area de formacao 2" in p or "formacao2" in p:
+        col_f2 = buscar_coluna(df, ["formacao 2", "area de formacao 2", "formacao_2", "segunda formacao", "curso 2"])
         return gerar_resposta(col_f2, "Relatório de Militares por Área de Formação 2")
-    elif "formacao" in p or "curso" in p:
-        col_f1 = buscar_coluna(df, ["area de formacao", "formacao", "curso", "graduacao", "nivel superior"])
+
+    # 7. Área de Formação (1ª Formação / Formação Acadêmica)
+    elif "formacao" in p or "curso" in p or "graduacao" in p:
+        col_f1 = buscar_coluna(df, ["area de formacao 1", "area de formacao", "formacao 1", "formacao", "curso", "graduacao", "superior"])
         return gerar_resposta(col_f1, "Relatório de Militares por Área de Formação")
+
+    # 8. Escolaridade
     elif "escolaridade" in p or "instrucao" in p:
         col_esc = buscar_coluna(df, ["escolaridade", "instrucao", "grau", "nivel", "escolar"])
         return gerar_resposta(col_esc, "Relatório de Militares por Escolaridade")
+
+    # 9. Cidade
     elif "cidade" in p or "municipio" in p or "residencia" in p:
         col_cid = buscar_coluna(df, ["cidade", "municipio", "residencia", "endereco", "mora"])
         return gerar_resposta(col_cid, "Relatório de Militares por Cidade")
+
+    # 10. Acumulação de Cargo
     elif "acumulacao" in p or "cargo" in p:
         col_ac = buscar_coluna(df, ["acumulacao", "cargo", "acumula", "outras atividades", "vinculo"])
         return gerar_resposta(col_ac, "Relatório de Militares por Acumulação de Cargo Público")
+
+    # 11. Afastamento
     elif "afastamento" in p or "licenca" in p:
         col_af = buscar_coluna(df, ["afastamento", "status", "situacao", "licenca"])
         col_tipo = buscar_coluna(df, ["tipo de afastamento", "motivo", "tipo afastamento", "tipo"])
         return gerar_resposta(col_af, "Relatório de Militares por Afastamento e Tipo de Afastamento", col_extra=col_tipo)
+
     else:
         return {
             "texto": (
@@ -244,7 +268,6 @@ def processar_relatorio_chat(pergunta: str, df: pd.DataFrame) -> dict:
                 "• Relatório de militares por afastamento e tipo de afastamento"
             )
         }
-
 # =========================================================
 # 3. INTERFACE DO DASHBOARD NO STREAMLIT
 # =========================================================
