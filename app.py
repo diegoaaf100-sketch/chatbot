@@ -192,15 +192,14 @@ Pergunta: {pergunta}
 # 3. INTERFACE DO DASHBOARD NO STREAMLIT
 # =========================================================
 
-# Aumentamos as margens laterais [4, 1, 1, 4] para fechar o espaço no centro
-col_esq, col_img1, col_img2, col_dir = st.columns([4, 1, 1, 4])
+# Proporção intermediária ideal: imagens em tamanho médio e centralizadas
+col_esq, col_img1, col_img2, col_dir = st.columns([2.5, 1, 1, 2.5])
 
 with col_img1:
-    # Ajuste o valor de width (ex: 80, 90, 100) até ficar no tamanho ideal
-    st.image("brasao_cbmpe.png", width=90)
+    st.image("brasao_cbmpe.png", use_container_width=True)
 
 with col_img2:
-    st.image("brasao_dgp.png", width=90)
+    st.image("brasao_dgp.png", use_container_width=True)
 
 st.markdown("<h1 style='text-align: center;'>Relatório do Efetivo</h1>", unsafe_allow_html=True)
 st.divider()
