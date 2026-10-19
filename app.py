@@ -192,7 +192,16 @@ Pergunta: {pergunta}
 # 3. INTERFACE DO DASHBOARD NO STREAMLIT
 # =========================================================
 
-# Proporção intermediária ideal: imagens em tamanho médio e centralizadas
+# Estilo CSS para arredondar a imagem circular e cortar as bordas quadradas brancas
+st.markdown("""
+    <style>
+    [data-testid="stImage"] img {
+        border-radius: 50%;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+# Proporção centralizada e ajustada para tamanho médio
 col_esq, col_img1, col_img2, col_dir = st.columns([2.5, 1, 1, 2.5])
 
 with col_img1:
