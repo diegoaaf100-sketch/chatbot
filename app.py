@@ -191,7 +191,7 @@ Pergunta: {pergunta}
 # =========================================================
 # 3. INTERFACE DO DASHBOARD NO STREAMLIT
 # =========================================================
-st.title("🛡️ Painel de Gestão e Relatórios de Efetivo")
+st.title("Relatórios do Efetivo")
 
 st.sidebar.header("🗂️ Seleção de Unidade / Seção")
 aba_selecionada = st.sidebar.selectbox("Selecione a OME / Unidade:", ABAS_VALIDAS)
