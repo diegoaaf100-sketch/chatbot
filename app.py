@@ -1,10 +1,8 @@
-import time
-import json
+import unicodedata
 import pandas as pd
 import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
-from google import genai
 
 # Configuração da página do Streamlit
 st.set_page_config(page_title="Painel de Gestão de Efetivo", page_icon="🛡️", layout="wide")
@@ -98,7 +96,6 @@ def carregar_aba(nome_aba: str) -> pd.DataFrame:
         worksheets = sh.worksheets()
         ws_alvo = None
         
-        import unicodedata
         def normalizar(texto):
             return ''.join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn').strip().lower().replace("º", "°")
         
@@ -143,42 +140,134 @@ def carregar_aba(nome_aba: str) -> pd.DataFrame:
         return pd.DataFrame()
 
 # =========================================================
-# 2. CONFIGURAÇÃO DA API DO GEMINI (NOVA INTEGRAÇÃO)
+# 2. MOTOR DE RELATÓRIOS DO CHATBOT (SEM DEPENDÊNCIA DE API EXTERNA)
 # =========================================================
-api_key = st.secrets.get("GEMINI_API_KEY", "")
+def buscar_coluna(df: pd.DataFrame, termos_busca: list) -> str:
+    """Procura por nomes de colunas flexíveis no DataFrame."""
+    for col in df.columns:
+        col_norm = ''.join(c for c in unicodedata.normalize('NFD', col) if unicodedata.category(c) != 'Mn').strip().lower()
+        for termo in termos_busca:
+            if termo in col_norm:
+                return col
+    return None
 
-def resumo_para_ia(df: pd.DataFrame) -> dict:
-    return {
-        "total_efetivo": len(df),
-        "postos_distribuicao": df["Posto / Graduação"].value_counts().head(10).to_dict() if "Posto / Graduação" in df.columns else {},
-        "quadros_distribuicao": df["Quadro"].value_counts().to_dict() if "Quadro" in df.columns else {},
-        "readaptados_total": int((df["Militar Readaptado"].astype(str).str.lower().isin(["sim", "s", "true", "1"])).sum()) if "Militar Readaptado" in df.columns else 0,
-        "pcd_total": int((df["Militar PCD"].astype(str).str.lower().isin(["sim", "s", "true", "1"])).sum()) if "Militar PCD" in df.columns else 0,
-    }
+def processar_relatorio_chat(pergunta: str, df: pd.DataFrame) -> dict:
+    p = ''.join(c for c in unicodedata.normalize('NFD', pergunta) if unicodedata.category(c) != 'Mn').lower().strip()
+    
+    if df.empty:
+        return {"texto": "⚠️ Não há dados disponíveis para gerar o relatório solicitado no momento."}
 
-def responder_chatbot(pergunta: str, dados: pd.DataFrame) -> str:
-    if not api_key:
-        return "⚠️ A chave GEMINI_API_KEY não está configurada nos Secrets do Streamlit."
-
-    try:
-        # Inicializa o cliente oficial do Google GenAI
-        client = genai.Client(api_key=api_key)
-        resumo = resumo_para_ia(dados)
+    # Helper para ordenar por coluna existente
+    def gerar_resposta(col_nome, titulo_relatorio, por_numero=False, col_extra=None):
+        if not col_nome:
+            return {"texto": f"⚠️ Não foi possível localizar a coluna correspondente a este relatório na tabela (Colunas disponíveis: {', '.join(df.columns)})."}
         
-        prompt_completo = f"""
-Assistente analítico de efetivo militar. Responda em português de forma formal, objetiva e com base exclusivamente nestes dados agregados:
-{resumo}
+        df_temp = df.copy()
+        
+        if por_numero:
+            df_temp["_sort_key"] = pd.to_numeric(df_temp[col_nome].astype(str).str.extract(r'(\d+)')[0], errors='coerce').fillna(0)
+            df_temp = df_temp.sort_values(by="_sort_key", ascending=True).drop(columns=["_sort_key"])
+        else:
+            df_temp = df_temp.sort_values(by=col_nome, key=lambda x: x.astype(str).str.lower(), ascending=True)
+            
+        cols_exibicao = [c for c in [buscar_coluna(df, ["matricula"]), buscar_coluna(df, ["nome"]), col_nome, col_extra] if c and c in df_temp.columns]
+        # Remove duplicatas mantendo a ordem
+        cols_exibicao = list(dict.from_keys(cols_exibicao))
+        
+        df_resumido = df_temp[cols_exibicao] if cols_exibicao else df_temp
+        
+        return {
+            "texto": f"📋 **{titulo_relatorio}**\n\nTotal de registros ordenados: **{len(df_temp)}**",
+            "df": df_resumido,
+            "nome_arquivo": f"{titulo_relatorio.lower().replace(' ', '_')}.csv"
+        }
 
-Pergunta: {pergunta}
-"""
-        # Utiliza o modelo padrão recomendado gemini-2.5-flash
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt_completo,
-        )
-        return response.text
-    except Exception as e:
-        return f"⚠️ Erro ao comunicar com a API do Gemini: {str(e)}"
+    # 1. Por Matrícula em Ordem Numérica
+    if "matricula" in p:
+        col = buscar_coluna(df, ["matricula"])
+        return gerar_resposta(col, "Relatorio de Militares por Matricula (Ordem Numerica)", por_numero=True)
+
+    # 2. Por Nome de Guerra
+    elif "nome de guerra" in p or "guerra" in p:
+        col = buscar_coluna(df, ["guerra", "nome de guerra"])
+        return gerar_resposta(col, "Relatorio de Militares por Nome de Guerra")
+
+    # 3. Por Nome / Ordem Alfabética Geral
+    elif "nome" in p or "alfabetica" in p or "alfabeto" in p:
+        col = buscar_coluna(df, ["nome", "militar", "nome completo"])
+        return gerar_resposta(col, "Relatorio de Militares por Ordem Alfabetica")
+
+    # 4. Por OME e Seção
+    elif "secao" in p and "ome" in p:
+        col_ome = buscar_coluna(df, ["ome", "unidade"])
+        col_sec = buscar_coluna(df, ["secao", "seção", "subunidade"])
+        if col_ome and col_sec:
+            df_temp = df.sort_values(by=[col_ome, col_sec], key=lambda x: x.astype(str).str.lower())
+            return {
+                "texto": f"📋 **Relatório de Militares por OME e Seção**\n\nTotal de registros: **{len(df_temp)}**",
+                "df": df_temp,
+                "nome_arquivo": "relatorio_ome_e_secao.csv"
+            }
+        else:
+            col_target = col_ome or col_sec
+            return gerar_resposta(col_target, "Relatorio por OME / Seção")
+
+    # 5. Por OME
+    elif "ome" in p or "unidade" in p:
+        col = buscar_coluna(df, ["ome", "unidade", "unidade_origem"])
+        return gerar_resposta(col, "Relatorio de Militares por OME")
+
+    # 6. Por Área de Formação 2
+    elif "formacao 2" in p or "area de formacao 2" in p:
+        col = buscar_coluna(df, ["formacao 2", "area de formacao 2", "formacao2"])
+        return gerar_resposta(col, "Relatorio de Militares por Area de Formacao 2")
+
+    # 7. Por Área de Formação
+    elif "formacao" in p or "curso" in p:
+        col = buscar_coluna(df, ["formacao", "area de formacao", "graduacao"])
+        return gerar_resposta(col, "Relatorio de Militares por Area de Formacao")
+
+    # 8. Por Escolaridade
+    elif "escolaridade" in p or "instrucao" in p:
+        col = buscar_coluna(df, ["escolaridade", "instrucao", "grau"])
+        return gerar_resposta(col, "Relatorio de Militares por Escolaridade")
+
+    # 9. Por Cidade
+    elif "cidade" in p or "municipio" in p or "residencia" in p:
+        col = buscar_coluna(df, ["cidade", "municipio", "residencia"])
+        return gerar_resposta(col, "Relatorio de Militares por Cidade")
+
+    # 10. Por Acumulação de Cargo Público
+    elif "acumulacao" in p or "cargo" in p:
+        col = buscar_coluna(df, ["acumulacao", "cargo", "acumula"])
+        return gerar_resposta(col, "Relatorio de Militares por Acumulacao de Cargo Publico")
+
+    # 11. Por Afastamento e Tipo de Afastamento
+    elif "afastamento" in p or "licenca" in p:
+        col_af = buscar_coluna(df, ["afastamento", "status"])
+        col_tipo = buscar_coluna(df, ["tipo de afastamento", "motivo", "tipo"])
+        return gerar_resposta(col_af, "Relatorio de Militares por Afastamento e Tipo de Afastamento", col_extra=col_tipo)
+
+    # Caso a pergunta não coincida com os comandos predefinidos
+    else:
+        return {
+            "texto": (
+                "🤖 **Menu de Relatórios Automatizados:**\n\n"
+                "Digite uma das opções abaixo para gerar o relatório com os dados da seleção atual:\n"
+                "1. *Relatório de militares por ordem alfabética*\n"
+                "2. *Relatório de militares por OME*\n"
+                "3. *Relatório de militares por OME e seção*\n"
+                "4. *Relatório de militares por matrícula em ordem numérica*\n"
+                "5. *Relatório de militares por nome em ordem alfabética*\n"
+                "6. *Relatório de militares por nome de guerra em ordem alfabética*\n"
+                "7. *Relatório de militares por escolaridade*\n"
+                "8. *Relatório de militares por área de formação*\n"
+                "9. *Relatório de militares por área de formação 2*\n"
+                "10. *Relatório de militares por cidade*\n"
+                "11. *Relatório de militares por acumulação de cargo público*\n"
+                "12. *Relatório de militares por afastamento e tipo de afastamento*"
+            )
+        }
 
 # =========================================================
 # 3. INTERFACE DO DASHBOARD NO STREAMLIT
@@ -281,40 +370,4 @@ if not df.empty:
         with gcol1:
             if "Posto / Graduação" in df_filtrado.columns:
                 st.markdown("**Distribuição por Posto / Graduação**")
-                contagem_postos = df_filtrado["Posto / Graduação"].value_counts()
-                st.bar_chart(contagem_postos)
-            else:
-                st.info("Coluna 'Posto / Graduação' não encontrada para o gráfico.")
-                
-        with gcol2:
-            if "Quadro" in df_filtrado.columns:
-                st.markdown("**Distribuição por Quadro**")
-                contagem_quadros = df_filtrado["Quadro"].value_counts()
-                st.bar_chart(contagem_quadros)
-            else:
-                st.info("Coluna 'Quadro' não encontrada para o gráfico.")
-
-    st.divider()
-    st.subheader("💬 Chatbot de Consulta Inteligente (Gemini)")
-    st.write(f"Faça perguntas sobre os totais e indicadores da seleção atual.")
-
-    if "historico_chat" not in st.session_state:
-        st.session_state.historico_chat = []
-
-    for mensagem in st.session_state.historico_chat:
-        with st.chat_message(mensagem["role"]):
-            st.markdown(mensagem["content"])
-
-    pergunta = st.chat_input("Ex.: Quantos militares readaptados temos no total?")
-
-    if pergunta:
-        st.session_state.historico_chat.append({"role": "user", "content": pergunta})
-        resposta = responder_chatbot(pergunta, df_filtrado)
-        st.session_state.historico_chat.append({"role": "assistant", "content": resposta})
-        st.rerun()
-
-else:
-    st.warning("Não há dados disponíveis para exibir na seleção atual.")
-
-st.divider()
-st.caption("Painel de Efetivo • Desenvolvido com Streamlit e Google Sheets API")
+                contagem_
