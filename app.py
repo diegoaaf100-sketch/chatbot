@@ -141,7 +141,7 @@ def carregar_aba(nome_aba: str) -> pd.DataFrame:
         return pd.DataFrame()
 
 # =========================================================
-# 2. MOTOR DE RELATÓRIOS DO CHATBOT (CORRIGIDO PARA FORMAÇÃO 1 E 2)
+# 2. MOTOR DE RELATÓRIOS DO CHATBOT (COM TRATAMENTO DE EM BRANCO)
 # =========================================================
 def buscar_coluna_exata(df: pd.DataFrame, termo_alvo: str) -> str:
     """Busca correspondência exata ou aproximada preservando maiúsculas e acentos do dataframe."""
@@ -176,6 +176,11 @@ def processar_relatorio_chat(pergunta: str, df: pd.DataFrame) -> dict:
 
     def gerar_resposta(col_alvo, titulo_relatorio, por_numero=False, col_extra=None):
         df_temp = df.copy()
+        
+        # Substituição de valores em branco / nulos por "Falta preencher" nas colunas exibidas
+        cols_para_tratar = [c for c in [col_posto, col_matricula, col_nome, col_ome, col_alvo, col_extra] if c and c in df_temp.columns]
+        for c in cols_para_tratar:
+            df_temp[c] = df_temp[c].astype(str).str.strip().replace(["", "nan", "None", "null"], "Falta preencher")
         
         if col_alvo and col_alvo in df_temp.columns:
             if por_numero:
