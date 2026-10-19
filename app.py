@@ -84,7 +84,6 @@ def processar_matriz_aba(matriz, nome_aba):
     if not matriz or len(matriz) < 1:
         return pd.DataFrame()
     
-    # Localiza dinamicamente a linha do cabeçalho
     idx_cabecalho = 0
     for i, linha in enumerate(matriz[:5]):
         if any(str(c).strip() for c in linha):
@@ -131,7 +130,6 @@ def carregar_todas_as_abas() -> dict:
         
         abas_dict = {}
         for ws in worksheets:
-            # Ignora abas de rascunho ou modelo se houver
             if ws.title.startswith("_"):
                 continue
             matriz = ws.get_all_values()
@@ -144,10 +142,7 @@ def carregar_todas_as_abas() -> dict:
         st.error(f"⚠️ Erro ao conectar e baixar dados do Google Sheets: {e}")
         return {}
 
-# Carrega todas as abas detectadas
 todas_abas = carregar_todas_as_abas()
-
-# Monta o menu dinâmico de abas disponíveis + a Visão Geral
 lista_abas_disponiveis = ["🔍 VISÃO GERAL"] + sorted(list(todas_abas.keys()))
 
 st.sidebar.header("🗂️ Seleção de Unidade / Seção")
@@ -316,4 +311,141 @@ with col_img1:
 with col_img2:
     st.image("brasao_dgp.png", use_container_width=True)
 
-st.markdown("<h1 style='text-align: center;'>Relatório do Efetivo</h1>", unsafe_allow
+st.markdown("<h1 style='text-align: center;'>Relatório do Efetivo</h1>", unsafe_allow_html=True)
+st.divider()
+
+if aba_selecionada == "🔍 VISÃO GERAL":
+    if todas_abas:
+        df = pd.concat(list(todas_abas.values()), ignore_index=True)
+    else:
+        df = pd.DataFrame()
+else:
+    df = todas_abas.get(aba_selecionada, pd.DataFrame())
+
+if not df.empty:
+    st.sidebar.divider()
+    st.sidebar.header("🔍 Filtros por Coluna")
+    
+    df_filtrado = df.copy()
+
+    for idx, coluna in enumerate(df.columns):
+        if coluna == "Unidade_Origem":
+            continue
+            
+        valores_unicos = df[coluna].dropna().unique()
+        
+        if len(valores_unicos) <= 25 and len(valores_unicos) > 1:
+            opcoes = sorted([str(v) for v in valores_unicos if str(v).strip() != ""])
+            if opcoes:
+                selecao = st.sidebar.multiselect(f"Filtrar {coluna}:", options=opcoes, key=f"multiselect_{idx}")
+                if selecao:
+                    df_filtrado = df_filtrado[df_filtrado[coluna].astype(str).isin(selecao)]
+        else:
+            busca = st.sidebar.text_input(f"Buscar em {coluna}:", key=f"search_{idx}")
+            if busca:
+                df_filtrado = df_filtrado[df_filtrado[coluna].astype(str).str.lower().str.contains(busca.lower(), na=False)]
+
+    st.subheader(f"Efetivo: {aba_selecionada}")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Total de Militares", len(df_filtrado))
+    with col2:
+        readaptados = (df_filtrado["Militar Readaptado"].astype(str).str.lower().isin(["sim", "s", "true", "1"])).sum() if "Militar Readaptado" in df_filtrado.columns else 0
+        st.metric("Readaptados", int(readaptados))
+    with col3:
+        pcd = (df_filtrado["Militar PCD"].astype(str).str.lower().isin(["sim", "s", "true", "1"])).sum() if "Militar PCD" in df_filtrado.columns else 0
+        st.metric("PCD", int(pcd))
+    with col4:
+        punidos = df_filtrado["Punição"].astype(str).str.strip().ne("").sum() if "Punição" in df_filtrado.columns else 0
+        st.metric("Com Punição Registrada", int(punidos))
+
+    st.divider()
+
+    st.markdown(f"### Registros ({len(df_filtrado)} encontrados)")
+    st.dataframe(df_filtrado, width='stretch')
+
+    csv = df_filtrado.to_csv(index=False).encode('utf-8')
+    st.download_button(
+        label="📥 Baixar Relatório Consolidado em CSV",
+        data=csv,
+        file_name=f"relatorio_efetivo_{aba_selecionada.lower().replace(' ', '_')}.csv",
+        mime='text/csv',
+        key="download_consolidado"
+    )
+
+    if not df_filtrado.empty:
+        st.divider()
+        st.subheader("📊 Análise Gráfica do Efetivo Filtrado")
+        
+        gcol1, gcol2 = st.columns(2)
+        
+        with gcol1:
+            col_posto_dash = buscar_coluna(df_filtrado, ["posto / graduacao", "posto/graduacao", "posto", "graduacao"])
+            if col_posto_dash and col_posto_dash in df_filtrado.columns:
+                st.markdown("**Distribuição por Posto / Graduação**")
+                contagem_postos = df_filtrado[col_posto_dash].value_counts()
+                st.bar_chart(contagem_postos)
+            else:
+                st.info("Coluna 'Posto / Graduação' não encontrada para o gráfico.")
+                
+        with gcol2:
+            col_ome_dash = buscar_coluna(df_filtrado, ["ome", "unidade_origem", "unidade", "lotacao", "lotação"])
+            if col_ome_dash and col_ome_dash in df_filtrado.columns:
+                st.markdown("**Distribuição por OME**")
+                contagem_ome = df_filtrado[col_ome_dash].value_counts()
+                st.bar_chart(contagem_ome)
+            else:
+                st.info("Coluna 'OME' não encontrada para o gráfico.")
+
+    st.divider()
+    st.subheader("💬 Chatbot Gerador de Relatórios")
+    st.write("Digite o relatório desejado (ex: *faça um relatório de militares por área de formação*).")
+
+    if "historico_chat" not in st.session_state:
+        st.session_state.historico_chat = []
+
+    for mensagem in st.session_state.historico_chat:
+        with st.chat_message(mensagem["role"]):
+            st.markdown(mensagem["content"])
+            if "df" in mensagem and mensagem["df"] is not None:
+                st.dataframe(mensagem["df"], width='stretch')
+                
+                col_grafico = mensagem.get("coluna_grafico")
+                if col_grafico and col_grafico in mensagem["df"].columns:
+                    dados_grafico = mensagem["df"][col_grafico].value_counts()
+                    if not dados_grafico.empty:
+                        st.markdown(f"**📊 Gráfico de Distribuição por {col_grafico}:**")
+                        st.bar_chart(dados_grafico)
+
+                csv_bytes = mensagem["df"].to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    label="📥 Baixar Este Relatório em CSV",
+                    data=csv_bytes,
+                    file_name=mensagem.get("nome_arquivo", "relatorio.csv"),
+                    mime="text/csv",
+                    key=f"dl_{time.time()}_{hash(mensagem['content'])}"
+                )
+
+    pergunta = st.chat_input("Ex.: faça um relatório de militares por área de formação")
+
+    if pergunta:
+        st.session_state.historico_chat.append({"role": "user", "content": pergunta})
+        resultado = processar_relatorio_chat(pergunta, df_filtrado)
+        
+        item_resposta = {
+            "role": "assistant",
+            "content": resultado["texto"],
+            "df": resultado.get("df"),
+            "coluna_grafico": resultado.get("coluna_grafico"),
+            "nome_arquivo": resultado.get("nome_arquivo")
+        }
+        
+        st.session_state.historico_chat.append(item_resposta)
+        st.rerun()
+
+else:
+    st.warning("⚠️ Não foram encontrados dados para exibir nesta seleção. Verifique se a planilha contém linhas preenchidas.")
+
+st.divider()
+st.caption("Painel de Efetivo • Desenvolvido com Streamlit e Google Sheets API")
