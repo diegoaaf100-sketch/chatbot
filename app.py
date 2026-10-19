@@ -383,20 +383,22 @@ if not df.empty:
         gcol1, gcol2 = st.columns(2)
         
         with gcol1:
-            if "Posto / Graduação" in df_filtrado.columns:
+            col_posto_dash = buscar_coluna(df_filtrado, ["posto / graduacao", "posto/graduacao", "posto", "graduacao"])
+            if col_posto_dash and col_posto_dash in df_filtrado.columns:
                 st.markdown("**Distribuição por Posto / Graduação**")
-                contagem_postos = df_filtrado["Posto / Graduação"].value_counts()
+                contagem_postos = df_filtrado[col_posto_dash].value_counts()
                 st.bar_chart(contagem_postos)
             else:
                 st.info("Coluna 'Posto / Graduação' não encontrada para o gráfico.")
                 
         with gcol2:
-            if "Quadro" in df_filtrado.columns:
-                st.markdown("**Distribuição por Quadro**")
-                contagem_quadros = df_filtrado["Quadro"].value_counts()
-                st.bar_chart(contagem_quadros)
+            col_ome_dash = buscar_coluna(df_filtrado, ["ome", "unidade_origem", "unidade", "lotacao", "lotação"])
+            if col_ome_dash and col_ome_dash in df_filtrado.columns:
+                st.markdown("**Distribuição por OME**")
+                contagem_ome = df_filtrado[col_ome_dash].value_counts()
+                st.bar_chart(contagem_ome)
             else:
-                st.info("Coluna 'Quadro' não encontrada para o gráfico.")
+                st.info("Coluna 'OME' não encontrada para o gráfico.")
 
     st.divider()
     st.subheader("💬 Chatbot Gerador de Relatórios")
