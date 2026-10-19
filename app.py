@@ -80,20 +80,27 @@ def conectar_google_sheets():
     return client.open_by_url(spreadsheet_url)
 
 def processar_matriz_aba(matriz, nome_aba):
-    """Lê a matriz ignorando linhas de metadados e garante que o cabeçalho seja limpo e preciso."""
+    """Localiza automaticamente a linha exata onde o cabeçalho começa (buscando por 'Posto') e descarta tudo acima."""
     if not matriz or len(matriz) < 1:
         return pd.DataFrame()
     
     idx_cabecalho = None
-    for i, linha in enumerate(matriz[:10]):
+    for i, linha in enumerate(matriz[:15]):
         linha_texto = " ".join([str(c).strip().lower() for c in linha if c is not None])
-        if "posto" in linha_texto or "matricula" in linha_texto or "matrícula" in linha_texto:
+        if "posto" in linha_texto:
             idx_cabecalho = i
             break
             
     if idx_cabecalho is None:
-        idx_cabecalho = 1 if len(matriz) > 1 else 0
-        
+        for i, linha in enumerate(matriz[:15]):
+            linha_texto = " ".join([str(c).strip().lower() for c in linha if c is not None])
+            if "matricula" in linha_texto or "matrícula" in linha_texto:
+                idx_cabecalho = i
+                break
+                
+    if idx_cabecalho is None:
+        idx_cabecalho = 0
+
     cabecalho_bruto = matriz[idx_cabecalho]
     
     while cabecalho_bruto and not str(cabecalho_bruto[-1]).strip():
@@ -104,12 +111,8 @@ def processar_matriz_aba(matriz, nome_aba):
     
     dados_estruturados = []
     for linha in linhas:
-        primeira_coluna = str(linha[0]).strip().lower() if len(linha) > 0 and linha[0] is not None else ""
-        
-        if "atualizado em" in primeira_coluna or "atualizado" in primeira_coluna:
-            continue
         linha_str = " ".join([str(c).strip().lower() for c in linha if c is not None])
-        if not any(str(c).strip() for c in linha) or "posto / graduacao" in linha_str or "posto" in linha_str:
+        if not any(str(c).strip() for c in linha) or "atualizado" in linha_str:
             continue
             
         item = {}
