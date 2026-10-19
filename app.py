@@ -80,15 +80,21 @@ def conectar_google_sheets():
     return client.open_by_url(spreadsheet_url)
 
 def processar_matriz_aba(matriz, nome_aba):
-    """Transforma a matriz bruta de valores da aba em DataFrame."""
+    """Transforma a matriz bruta de valores da aba em DataFrame identificando a linha do cabeçalho dinamicamente."""
     if not matriz or len(matriz) < 1:
         return pd.DataFrame()
     
+    # Identifica dinamicamente qual linha é o cabeçalho
     idx_cabecalho = 0
-    for i, linha in enumerate(matriz[:5]):
-        if any(str(c).strip() for c in linha):
+    palavras_chave_cabecalho = ["posto", "graduacao", "matricula", "nome", "ome", "quadro", "militar"]
+    
+    for i, linha in enumerate(matriz[:5]): # Analisa as primeiras 5 linhas
+        linha_norm = " ".join([str(c).strip().lower() for c in linha])
+        if any(kw in linha_norm for kw in palavras_chave_cabecalho):
             idx_cabecalho = i
             break
+        elif any(str(c).strip() for c in linha) and idx_cabecalho == 0:
+            idx_cabecalho = i
 
     cabecalho = [str(c).strip() for c in matriz[idx_cabecalho]]
     linhas = matriz[idx_cabecalho + 1:]
