@@ -57,19 +57,8 @@ if st.sidebar.button("🚪 Sair / Logout", key="btn_logout"):
 
 st.sidebar.divider()
 
-# Lista exata das abas fornecidas + a Visão Geral
-ABAS_VALIDAS = [
-    "🔍 VISÃO GERAL",
-    "1°GB", "2°GB", "3°GB", "4°GB", "5°GB", "6°GB", "7°GB", "9°GB", 
-    "ABMG", "AECI", "AJG", "CAT AGRESTE", "CAT SERTÃO", "CAT ZONA DA MATA",
-    "CAT/RMR", "CCS", "CEAO", "CEFD", "CI", "CINT", "CMAN", "CPO/CPP", 
-    "CPPA", "DAS", "DEIP", "DF", "DGO", "DGP", "ADIDO", "DIESP", "DIM", 
-    "DINTER/1", "DINTER/2", "DJD", "DLOG", "DPLAG", "DTIC", "DVP", 
-    "GBAPH", "GBI", "GBMAR", "GBS", "GCG", "GSG"
-]
-
 # =========================================================
-# 1. CONEXÃO COM A PLANILHA PRIVADA E CARREGAMENTO OTIMIZADO
+# 1. CONEXÃO COM A PLANILHA PRIVADA E CARREGAMENTO DINÂMICO
 # =========================================================
 @st.cache_resource
 def conectar_google_sheets():
@@ -95,13 +84,19 @@ def processar_matriz_aba(matriz, nome_aba):
     if not matriz or len(matriz) < 1:
         return pd.DataFrame()
     
-    idx_cabecalho = 1 if len(matriz) > 1 and any(matriz[1]) else 0
+    # Localiza dinamicamente a linha do cabeçalho
+    idx_cabecalho = 0
+    for i, linha in enumerate(matriz[:5]):
+        if any(str(c).strip() for c in linha):
+            idx_cabecalho = i
+            break
+
     cabecalho = [str(c).strip() for c in matriz[idx_cabecalho]]
     linhas = matriz[idx_cabecalho + 1:]
     
     dados_estruturados = []
     for linha in linhas:
-        if not any(linha):
+        if not any(str(c).strip() for c in linha):
             continue
         while len(linha) < len(cabecalho):
             linha.append("")
@@ -129,38 +124,37 @@ def processar_matriz_aba(matriz, nome_aba):
 
 @st.cache_data(ttl=1800)
 def carregar_todas_as_abas() -> dict:
-    """Lê todas as abas em lote reduzindo chamadas da API ao mínimo."""
+    """Lê todas as abas existentes na planilha diretamente do Google Sheets."""
     try:
         sh = conectar_google_sheets()
         worksheets = sh.worksheets()
         
-        def normalizar(texto):
-            return ''.join(c for c in unicodedata.normalize('NFD', str(texto)) if unicodedata.category(c) != 'Mn').strip().lower().replace("º", "°")
-        
         abas_dict = {}
         for ws in worksheets:
-            title_norm = normalizar(ws.title)
-            # Verifica se a aba atual está na nossa lista de abas válidas
-            for aba_valida in ABAS_VALIDAS:
-                if aba_valida != "🔍 VISÃO GERAL" and normalizar(aba_valida) == title_norm:
-                    matriz = ws.get_all_values()
-                    df_aba = processar_matriz_aba(matriz, ws.title)
-                    if not df_aba.empty:
-                        abas_dict[aba_valida] = df_aba
-                    break
+            # Ignora abas de rascunho ou modelo se houver
+            if ws.title.startswith("_"):
+                continue
+            matriz = ws.get_all_values()
+            df_aba = processar_matriz_aba(matriz, ws.title)
+            if not df_aba.empty:
+                abas_dict[ws.title] = df_aba
                     
         return abas_dict
     except Exception as e:
-        st.error(f"Erro ao conectar e baixar dados do Google Sheets: {e}")
+        st.error(f"⚠️ Erro ao conectar e baixar dados do Google Sheets: {e}")
         return {}
 
-@st.cache_data(ttl=1800)
-def carregar_aba(nome_aba: str) -> pd.DataFrame:
-    dados_totais = carregar_todas_as_abas()
-    return dados_totais.get(nome_aba, pd.DataFrame())
+# Carrega todas as abas detectadas
+todas_abas = carregar_todas_as_abas()
+
+# Monta o menu dinâmico de abas disponíveis + a Visão Geral
+lista_abas_disponiveis = ["🔍 VISÃO GERAL"] + sorted(list(todas_abas.keys()))
+
+st.sidebar.header("🗂️ Seleção de Unidade / Seção")
+aba_selecionada = st.sidebar.selectbox("Selecione a OME / Unidade:", lista_abas_disponiveis, key="select_ome_unidade")
 
 # =========================================================
-# 2. MOTOR DE RELATÓRIOS DO CHATBOT (COM TRATAMENTO DE EM BRANCO)
+# 2. MOTOR DE RELATÓRIOS DO CHATBOT
 # =========================================================
 def buscar_coluna_exata(df: pd.DataFrame, termo_alvo: str) -> str:
     termo_norm = ''.join(c for c in unicodedata.normalize('NFD', termo_alvo) if unicodedata.category(c) != 'Mn').strip().lower()
@@ -206,4 +200,120 @@ def processar_relatorio_chat(pergunta: str, df: pd.DataFrame) -> dict:
             else:
                 df_temp = df_temp.sort_values(by=col_alvo, key=lambda x: x.astype(str).str.lower(), ascending=True)
         
-        colunas_des
+        colunas_desejadas = [col_posto, col_matricula, col_nome, col_ome, col_alvo, col_extra]
+        
+        cols_finais = []
+        for c in colunas_desejadas:
+            if c and c in df_temp.columns and c not in cols_finais:
+                cols_finais.append(c)
+                
+        df_resumido = df_temp[cols_finais] if cols_finais else df_temp
+        coluna_grafico = col_alvo if (col_alvo and col_alvo in df_resumido.columns) else col_posto
+        
+        aviso_coluna = ""
+        if col_alvo and col_alvo in df_resumido.columns:
+            aviso_coluna = f"\n📌 Coluna exibida no relatório: **{col_alvo}**"
+        else:
+            aviso_coluna = "\n⚠️ *Coluna não identificada na planilha. Exibindo colunas padrão.*"
+        
+        return {
+            "texto": f"📋 **{titulo_relatorio}**{aviso_coluna}\n\nTotal de registros: **{len(df_temp)}**",
+            "df": df_resumido,
+            "coluna_grafico": coluna_grafico,
+            "nome_arquivo": f"{titulo_relatorio.lower().replace(' ', '_')}.csv"
+        }
+
+    # 1. Matrícula
+    if "matricula" in p:
+        return gerar_resposta(col_matricula, "Relatório de Militares por Matrícula", por_numero=True)
+
+    # 2. Nome de Guerra
+    elif "nome de guerra" in p or "guerra" in p:
+        col_guerra = buscar_coluna(df, ["nome de guerra", "guerra", "nome_guerra"])
+        return gerar_resposta(col_guerra, "Relatório de Militares por Nome de Guerra")
+
+    # 3. Nome / Ordem Alfabética
+    elif "nome" in p or "alfabetica" in p or "alfabeto" in p:
+        return gerar_resposta(col_nome, "Relatório de Militares por Ordem Alfabética")
+
+    # 4. OME e Seção
+    elif "secao" in p and "ome" in p:
+        col_sec = buscar_coluna(df, ["secao", "seção", "subunidade", "divisao"])
+        return gerar_resposta(col_ome, "Relatório de Militares por OME e Seção", col_extra=col_sec)
+
+    # 5. OME
+    elif "ome" in p or "unidade" in p:
+        return gerar_resposta(col_ome, "Relatório de Militares por OME")
+
+    # 6. Área de Formação 2
+    elif "formacao 2" in p or "area de formacao 2" in p:
+        col_f2 = buscar_coluna(df, ["area de formacao 2", "formacao 2", "area de formacao2"])
+        return gerar_resposta(col_f2, "Relatório de Militares por Área de Formação 2")
+
+    # 7. Área de Formação 1 (ou Área de Formação)
+    elif "formacao" in p or "curso" in p or "graduacao" in p:
+        col_f1 = buscar_coluna(df, ["area de formacao 1", "area de formacao", "formacao 1", "formacao"])
+        return gerar_resposta(col_f1, "Relatório de Militares por Área de Formação")
+
+    # 8. Escolaridade
+    elif "escolaridade" in p or "instrucao" in p:
+        col_esc = buscar_coluna(df, ["escolaridade", "instrucao", "grau", "nivel"])
+        return gerar_resposta(col_esc, "Relatório de Militares por Escolaridade")
+
+    # 9. Cidade
+    elif "cidade" in p or "municipio" in p or "residencia" in p:
+        col_cid = buscar_coluna(df, ["cidade", "municipio", "residencia", "endereco"])
+        return gerar_resposta(col_cid, "Relatório de Militares por Cidade")
+
+    # 10. Acumulação de Cargo
+    elif "acumulacao" in p or "cargo" in p:
+        col_ac = buscar_coluna(df, ["acumulacao de cargo publico", "acumulacao de cargo", "acumulacao", "cargo"])
+        return gerar_resposta(col_ac, "Relatório de Militares por Acumulação de Cargo Público")
+
+    # 11. Afastamento
+    elif "afastamento" in p or "licenca" in p:
+        col_af = buscar_coluna(df, ["afastamento", "status", "situacao"])
+        col_tipo = buscar_coluna(df, ["tipo de afastamento", "motivo", "tipo"])
+        return gerar_resposta(col_af, "Relatório de Militares por Afastamento e Tipo de Afastamento", col_extra=col_tipo)
+
+    else:
+        return {
+            "texto": (
+                "🤖 **Menu de Relatórios Automatizados:**\n\n"
+                "Digite uma das opções abaixo para gerar o relatório desejado:\n"
+                "• Relatório de militares por ordem alfabética\n"
+                "• Relatório de militares por OME\n"
+                "• Relatório de militares por OME e seção\n"
+                "• Relatório de militares por matrícula em ordem numérica\n"
+                "• Relatório de militares por nome em ordem alfabética\n"
+                "• Relatório de militares por nome de guerra em ordem alfabética\n"
+                "• Relatório de militares por escolaridade\n"
+                "• Relatório de militares por área de formação\n"
+                "• Relatório de militares por área de formação 2\n"
+                "• Relatório de militares por cidade\n"
+                "• Relatório de militares por acumulação de cargo público\n"
+                "• Relatório de militares por afastamento e tipo de afastamento"
+            )
+        }
+
+# =========================================================
+# 3. INTERFACE DO DASHBOARD NO STREAMLIT
+# =========================================================
+
+st.markdown("""
+    <style>
+    [data-testid="stImage"] img {
+        border-radius: 50%;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+col_esq, col_img1, col_img2, col_dir = st.columns([2.5, 1, 1, 2.5])
+
+with col_img1:
+    st.image("brasao_cbmpe.png", use_container_width=True)
+
+with col_img2:
+    st.image("brasao_dgp.png", use_container_width=True)
+
+st.markdown("<h1 style='text-align: center;'>Relatório do Efetivo</h1>", unsafe_allow
