@@ -80,11 +80,14 @@ def conectar_google_sheets():
     return client.open_by_url(spreadsheet_url)
 
 def processar_matriz_aba(matriz, nome_aba):
-    """Lê a matriz de dados com cabeçalho padronizado estritamente na Linha 2 (índice 1)."""
+    """Lê a matriz de dados ignorando a linha 1 (metadados) e usando a linha 2 estritamente como cabeçalho."""
     if not matriz or len(matriz) < 2:
         return pd.DataFrame()
     
     idx_cabecalho = 1
+    if len(matriz) <= idx_cabecalho:
+        return pd.DataFrame()
+        
     cabecalho_bruto = matriz[idx_cabecalho]
     
     while cabecalho_bruto and not str(cabecalho_bruto[-1]).strip():
@@ -95,7 +98,8 @@ def processar_matriz_aba(matriz, nome_aba):
     
     dados_estruturados = []
     for linha in linhas:
-        if not any(str(c).strip() for c in linha):
+        linha_str = " ".join([str(c).strip().lower() for c in linha if c is not None])
+        if not any(str(c).strip() for c in linha) or "atualizado em" in linha_str:
             continue
             
         item = {}
