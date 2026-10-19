@@ -80,7 +80,7 @@ def conectar_google_sheets():
     return client.open_by_url(spreadsheet_url)
 
 def processar_matriz_aba(matriz, nome_aba):
-    """Varre as primeiras linhas para encontrar onde realmente está o cabeçalho oficial e descarta metadados."""
+    """Lê a matriz ignorando linhas de metadados e garante que o cabeçalho seja limpo e preciso."""
     if not matriz or len(matriz) < 1:
         return pd.DataFrame()
     
@@ -104,8 +104,12 @@ def processar_matriz_aba(matriz, nome_aba):
     
     dados_estruturados = []
     for linha in linhas:
+        primeira_coluna = str(linha[0]).strip().lower() if len(linha) > 0 and linha[0] is not None else ""
+        
+        if "atualizado em" in primeira_coluna or "atualizado" in primeira_coluna:
+            continue
         linha_str = " ".join([str(c).strip().lower() for c in linha if c is not None])
-        if not any(str(c).strip() for c in linha) or "atualizado em" in linha_str or "posto / graduacao" in linha_str or "posto" in linha_str:
+        if not any(str(c).strip() for c in linha) or "posto / graduacao" in linha_str or "posto" in linha_str:
             continue
             
         item = {}
@@ -120,6 +124,9 @@ def processar_matriz_aba(matriz, nome_aba):
     df = pd.DataFrame(dados_estruturados)
     df = df.dropna(how="all")
     
+    for col_verif in df.columns:
+        df = df[~df[col_verif].astype(str).str.lower().str.contains("atualizado em", na=False)]
+
     novos_nomes = {}
     for col in df.columns:
         col_lower = str(col).lower()
