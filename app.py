@@ -141,7 +141,7 @@ def carregar_aba(nome_aba: str) -> pd.DataFrame:
         return pd.DataFrame()
 
 # =========================================================
-# 2. MOTOR DE RELATÓRIOS DO CHATBOT
+# 2. MOTOR DE RELATÓRIOS DO CHATBOT (COLUNAS OBRIGATÓRIAS)
 # =========================================================
 def buscar_coluna(df: pd.DataFrame, termos_busca: list) -> str:
     for col in df.columns:
@@ -157,69 +157,71 @@ def processar_relatorio_chat(pergunta: str, df: pd.DataFrame) -> dict:
     if df.empty:
         return {"texto": "⚠️ Não há dados disponíveis para gerar o relatório solicitado no momento."}
 
-    def gerar_resposta(col_nome, titulo_relatorio, por_numero=False, col_extra=None):
-        if not col_nome:
-            return {"texto": f"⚠️ Não foi possível localizar a coluna correspondente a este relatório na tabela."}
-        
+    # Identificação das 4 colunas obrigatórias
+    col_posto = buscar_coluna(df, ["posto", "graduacao", "posto / graduacao"])
+    col_matricula = buscar_coluna(df, ["matricula"])
+    col_nome = buscar_coluna(df, ["nome", "militar", "nome completo"])
+    col_ome = buscar_coluna(df, ["ome", "unidade", "unidade_origem"])
+
+    def gerar_resposta(col_alvo, titulo_relatorio, por_numero=False, col_extra=None):
         df_temp = df.copy()
         
-        if por_numero:
-            df_temp["_sort_key"] = pd.to_numeric(df_temp[col_nome].astype(str).str.extract(r'(\d+)')[0], errors='coerce').fillna(0)
-            df_temp = df_temp.sort_values(by="_sort_key", ascending=True).drop(columns=["_sort_key"])
-        else:
-            df_temp = df_temp.sort_values(by=col_nome, key=lambda x: x.astype(str).str.lower(), ascending=True)
-            
-        # Retorna o DataFrame completo com todas as colunas
+        # Ordenação
+        if col_alvo and col_alvo in df_temp.columns:
+            if por_numero:
+                df_temp["_sort_key"] = pd.to_numeric(df_temp[col_alvo].astype(str).str.extract(r'(\d+)')[0], errors='coerce').fillna(0)
+                df_temp = df_temp.sort_values(by="_sort_key", ascending=True).drop(columns=["_sort_key"])
+            else:
+                df_temp = df_temp.sort_values(by=col_alvo, key=lambda x: x.astype(str).str.lower(), ascending=True)
+        
+        # Seleção obrigatória: Posto / Graduação, Matrícula, Nome, OME + Coluna Solicitada
+        colunas_desejadas = [col_posto, col_matricula, col_nome, col_ome, col_alvo, col_extra]
+        
+        # Filtra apenas as colunas válidas existentes no DataFrame mantendo a ordem sem duplicatas
+        cols_finais = []
+        for c in colunas_desejadas:
+            if c and c in df_temp.columns and c not in cols_finais:
+                cols_finais.append(c)
+                
+        df_resumido = df_temp[cols_finais] if cols_finais else df_temp
+        
         return {
             "texto": f"📋 **{titulo_relatorio}**\n\nTotal de registros ordenados: **{len(df_temp)}**",
-            "df": df_temp,
+            "df": df_resumido,
             "nome_arquivo": f"{titulo_relatorio.lower().replace(' ', '_')}.csv"
         }
 
     if "matricula" in p:
-        col = buscar_coluna(df, ["matricula"])
-        return gerar_resposta(col, "Relatorio de Militares por Matricula (Ordem Numerica)", por_numero=True)
+        return gerar_resposta(col_matricula, "Relatório de Militares por Matrícula (Ordem Numérica)", por_numero=True)
     elif "nome de guerra" in p or "guerra" in p:
-        col = buscar_coluna(df, ["guerra", "nome de guerra"])
-        return gerar_resposta(col, "Relatorio de Militares por Nome de Guerra")
+        col_guerra = buscar_coluna(df, ["guerra", "nome de guerra"])
+        return gerar_resposta(col_guerra, "Relatório de Militares por Nome de Guerra")
     elif "nome" in p or "alfabetica" in p or "alfabeto" in p:
-        col = buscar_coluna(df, ["nome", "militar", "nome completo"])
-        return gerar_resposta(col, "Relatorio de Militares por Ordem Alfabetica")
+        return gerar_resposta(col_nome, "Relatório de Militares por Ordem Alfabética")
     elif "secao" in p and "ome" in p:
-        col_ome = buscar_coluna(df, ["ome", "unidade"])
         col_sec = buscar_coluna(df, ["secao", "seção", "subunidade"])
-        if col_ome and col_sec:
-            df_temp = df.sort_values(by=[col_ome, col_sec], key=lambda x: x.astype(str).str.lower())
-            return {
-                "texto": f"📋 **Relatório de Militares por OME e Seção**\n\nTotal de registros: **{len(df_temp)}**",
-                "df": df_temp,
-                "nome_arquivo": "relatorio_ome_e_secao.csv"
-            }
-        else:
-            col_target = col_ome or col_sec
-            return gerar_resposta(col_target, "Relatorio por OME / Seção")
+        return gerar_resposta(col_ome, "Relatório de Militares por OME e Seção", col_extra=col_sec)
     elif "ome" in p or "unidade" in p:
-        col = buscar_coluna(df, ["ome", "unidade", "unidade_origem"])
-        return gerar_resposta(col, "Relatorio de Militares por OME")
+        return gerar_resposta(col_ome, "Relatório de Militares por OME")
     elif "formacao 2" in p or "area de formacao 2" in p:
-        col = buscar_coluna(df, ["formacao 2", "area de formacao 2", "formacao2"])
-        return gerar_resposta(col, "Relatorio de Militares por Area de Formacao 2")
+        col_f2 = buscar_coluna(df, ["formacao 2", "area de formacao 2", "formacao2"])
+        return gerar_resposta(col_f2, "Relatório de Militares por Área de Formação 2")
     elif "formacao" in p or "curso" in p:
-        col = buscar_coluna(df, ["formacao", "area de formacao", "graduacao"])
-        return gerar_resposta(col, "Relatorio de Militares por Area de Formacao")
+        col_f1 = buscar_coluna(df, ["formacao", "area de formacao", "graduacao"])
+        return gerar_resposta(col_f1, "Relatório de Militares por Área de Formação")
     elif "escolaridade" in p or "instrucao" in p:
-        col = buscar_coluna(df, ["escolaridade", "instrucao", "grau"])
-        return gerar_resposta(col, "Relatorio de Militares por Escolaridade")
+        col_esc = buscar_coluna(df, ["escolaridade", "instrucao", "grau"])
+        return gerar_resposta(col_esc, "Relatório de Militares por Escolaridade")
     elif "cidade" in p or "municipio" in p or "residencia" in p:
-        col = buscar_coluna(df, ["cidade", "municipio", "residencia"])
-        return gerar_resposta(col, "Relatorio de Militares por Cidade")
+        col_cid = buscar_coluna(df, ["cidade", "municipio", "residencia"])
+        return gerar_resposta(col_cid, "Relatório de Militares por Cidade")
     elif "acumulacao" in p or "cargo" in p:
-        col = buscar_coluna(df, ["acumulacao", "cargo", "acumula"])
-        return gerar_resposta(col, "Relatorio de Militares por Acumulacao de Cargo Publico")
+        col_ac = buscar_coluna(df, ["acumulacao", "cargo", "acumula"])
+        return gerar_resposta(col_ac, "Relatório de Militares por Acumulação de Cargo Público")
     elif "afastamento" in p or "licenca" in p:
         col_af = buscar_coluna(df, ["afastamento", "status"])
         col_tipo = buscar_coluna(df, ["tipo de afastamento", "motivo", "tipo"])
-        return gerar_resposta(col_af, "Relatorio de Militares por Afastamento e Tipo de Afastamento", col_extra=col_tipo)
+        return gerar_resposta(col_af, "Relatório de Militares por Afastamento e Tipo de Afastamento", col_extra=col_tipo)
     else:
         return {
             "texto": (
@@ -309,88 +311,4 @@ if not df.empty:
         st.metric("Total de Militares", len(df_filtrado))
     with col2:
         readaptados = (df_filtrado["Militar Readaptado"].astype(str).str.lower().isin(["sim", "s", "true", "1"])).sum() if "Militar Readaptado" in df_filtrado.columns else 0
-        st.metric("Readaptados", int(readaptados))
-    with col3:
-        pcd = (df_filtrado["Militar PCD"].astype(str).str.lower().isin(["sim", "s", "true", "1"])).sum() if "Militar PCD" in df_filtrado.columns else 0
-        st.metric("PCD", int(pcd))
-    with col4:
-        punidos = df_filtrado["Punição"].astype(str).str.strip().ne("").sum() if "Punição" in df_filtrado.columns else 0
-        st.metric("Com Punição Registrada", int(punidos))
-
-    st.divider()
-
-    st.markdown(f"### Registros ({len(df_filtrado)} encontrados)")
-    st.dataframe(df_filtrado, width='stretch')
-
-    csv = df_filtrado.to_csv(index=False).encode('utf-8')
-    st.download_button(
-        label="📥 Baixar Relatório Consolidado em CSV",
-        data=csv,
-        file_name=f"relatorio_efetivo_{aba_selecionada.lower().replace(' ', '_')}.csv",
-        mime='text/csv',
-    )
-
-    if not df_filtrado.empty:
-        st.divider()
-        st.subheader("📊 Análise Gráfica do Efetivo Filtrado")
-        
-        gcol1, gcol2 = st.columns(2)
-        
-        with gcol1:
-            if "Posto / Graduação" in df_filtrado.columns:
-                st.markdown("**Distribuição por Posto / Graduação**")
-                contagem_postos = df_filtrado["Posto / Graduação"].value_counts()
-                st.bar_chart(contagem_postos)
-            else:
-                st.info("Coluna 'Posto / Graduação' não encontrada para o gráfico.")
-                
-        with gcol2:
-            if "Quadro" in df_filtrado.columns:
-                st.markdown("**Distribuição por Quadro**")
-                contagem_quadros = df_filtrado["Quadro"].value_counts()
-                st.bar_chart(contagem_quadros)
-            else:
-                st.info("Coluna 'Quadro' não encontrada para o gráfico.")
-
-    st.divider()
-    st.subheader("💬 Chatbot Gerador de Relatórios")
-    st.write("Digite o relatório desejado (ex: *faça um relatório de militares por OME*).")
-
-    if "historico_chat" not in st.session_state:
-        st.session_state.historico_chat = []
-
-    for mensagem in st.session_state.historico_chat:
-        with st.chat_message(mensagem["role"]):
-            st.markdown(mensagem["content"])
-            if "df" in mensagem and mensagem["df"] is not None:
-                st.dataframe(mensagem["df"], width='stretch')
-                csv_bytes = mensagem["df"].to_csv(index=False).encode('utf-8')
-                st.download_button(
-                    label="📥 Baixar Este Relatório em CSV",
-                    data=csv_bytes,
-                    file_name=mensagem.get("nome_arquivo", "relatorio.csv"),
-                    mime="text/csv",
-                    key=f"dl_{time.time()}_{hash(mensagem['content'])}"
-                )
-
-    pergunta = st.chat_input("Ex.: faça um relatório de militares por OME")
-
-    if pergunta:
-        st.session_state.historico_chat.append({"role": "user", "content": pergunta})
-        resultado = processar_relatorio_chat(pergunta, df_filtrado)
-        
-        item_resposta = {
-            "role": "assistant",
-            "content": resultado["texto"],
-            "df": resultado.get("df"),
-            "nome_arquivo": resultado.get("nome_arquivo")
-        }
-        
-        st.session_state.historico_chat.append(item_resposta)
-        st.rerun()
-
-else:
-    st.warning("Não há dados disponíveis para exibir na seleção atual.")
-
-st.divider()
-st.caption("Painel de Efetivo • Desenvolvido com Streamlit e Google Sheets API")
+        st.metric("Readaptados",
