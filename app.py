@@ -80,32 +80,48 @@ def conectar_google_sheets():
     return client.open_by_url(spreadsheet_url)
 
 def processar_matriz_aba(matriz, nome_aba):
-    """Transforma a matriz bruta de valores da aba em DataFrame identificando a linha do cabeçalho dinamicamente."""
+    """Transforma a matriz bruta de valores da aba em DataFrame identificando a linha exata do cabeçalho."""
     if not matriz or len(matriz) < 1:
         return pd.DataFrame()
     
-    # Identifica dinamicamente qual linha é o cabeçalho
-    idx_cabecalho = 0
+    idx_cabecalho = None
     palavras_chave_cabecalho = ["posto", "graduacao", "matricula", "nome", "ome", "quadro", "militar"]
     
-    for i, linha in enumerate(matriz[:5]): # Analisa as primeiras 5 linhas
-        linha_norm = " ".join([str(c).strip().lower() for c in linha])
-        if any(kw in linha_norm for kw in palavras_chave_cabecalho):
+    for i, linha in enumerate(matriz[:10]):
+        linha_unida = " ".join([str(c).strip().lower() for c in linha if c is not None])
+        if "atualizado em" in linha_unida or "atualizado:" in linha_unida:
+            continue
+        if any(kw in linha_unida for kw in palavras_chave_cabecalho):
             idx_cabecalho = i
             break
-        elif any(str(c).strip() for c in linha) and idx_cabecalho == 0:
-            idx_cabecalho = i
 
-    cabecalho = [str(c).strip() for c in matriz[idx_cabecalho]]
+    if idx_cabecalho is None:
+        for i, linha in enumerate(matriz[:5]):
+            linha_unida = " ".join([str(c).strip().lower() for c in linha if c is not None])
+            if "atualizado em" not in linha_unida and any(str(c).strip() for c in linha):
+                idx_cabecalho = i
+                break
+
+    if idx_cabecalho is None:
+        idx_cabecalho = 0
+
+    cabecalho_bruto = matriz[idx_cabecalho]
+    while cabecalho_bruto and not str(cabecalho_bruto[-1]).strip():
+        cabecalho_bruto.pop()
+        
+    cabecalho = [str(c).strip() if str(c).strip() != "" else f"Coluna_{idx}" for idx, c in enumerate(cabecalho_bruto)]
     linhas = matriz[idx_cabecalho + 1:]
     
     dados_estruturados = []
     for linha in linhas:
-        if not any(str(c).strip() for c in linha):
+        linha_str = " ".join([str(c).strip().lower() for c in linha if c is not None])
+        if not any(str(c).strip() for c in linha) or "atualizado em" in linha_str or "posto / graduacao" in linha_str:
             continue
-        while len(linha) < len(cabecalho):
-            linha.append("")
-        item = {cabecalho[i]: str(linha[i]).strip() if i < len(linha) and linha[i] is not None else "" for i in range(len(cabecalho))}
+            
+        item = {}
+        for i, nome_col in enumerate(cabecalho):
+            val = str(linha[i]).strip() if i < len(linha) and linha[i] is not None else ""
+            item[nome_col] = val
         dados_estruturados.append(item)
         
     if not dados_estruturados:
@@ -114,12 +130,10 @@ def processar_matriz_aba(matriz, nome_aba):
     df = pd.DataFrame(dados_estruturados)
     df = df.dropna(how="all")
     
-    if "" in df.columns:
-        df = df.drop(columns=[""])
-        
     novos_nomes = {}
     for col in df.columns:
-        if col.lower().startswith("matrícula") or col.lower().startswith("matricula"):
+        col_lower = str(col).lower()
+        if col_lower.startswith("matrícula") or col_lower.startswith("matricula"):
             novos_nomes[col] = "Matrícula"
     if novos_nomes:
         df = df.rename(columns=novos_nomes)
