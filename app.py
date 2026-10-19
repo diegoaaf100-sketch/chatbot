@@ -1,10 +1,10 @@
 import time
 import json
-import requests
 import pandas as pd
 import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
+from google import genai
 
 # Configuração da página do Streamlit
 st.set_page_config(page_title="Painel de Gestão de Efetivo", page_icon="🛡️", layout="wide")
@@ -143,7 +143,7 @@ def carregar_aba(nome_aba: str) -> pd.DataFrame:
         return pd.DataFrame()
 
 # =========================================================
-# 2. CONFIGURAÇÃO DO GEMINI
+# 2. CONFIGURAÇÃO DA API DO GEMINI (NOVA INTEGRAÇÃO)
 # =========================================================
 api_key = st.secrets.get("GEMINI_API_KEY", "")
 
@@ -160,39 +160,31 @@ def responder_chatbot(pergunta: str, dados: pd.DataFrame) -> str:
     if not api_key:
         return "⚠️ A chave GEMINI_API_KEY não está configurada nos Secrets do Streamlit."
 
-    resumo = resumo_para_ia(dados)
-    prompt_completo = f"""
+    try:
+        # Inicializa o cliente oficial do Google GenAI
+        client = genai.Client(api_key=api_key)
+        resumo = resumo_para_ia(dados)
+        
+        prompt_completo = f"""
 Assistente analítico de efetivo militar. Responda em português de forma formal, objetiva e com base exclusivamente nestes dados agregados:
 {resumo}
 
 Pergunta: {pergunta}
 """
-
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
-    
-    headers = {'Content-Type': 'application/json'}
-    payload = {
-        "contents": [{
-            "parts": [{"text": prompt_completo}]
-        }]
-    }
-
-    try:
-        response = requests.post(url, headers=headers, data=json.dumps(payload), timeout=15)
-        if response.status_code == 200:
-            res_json = response.json()
-            texto_resposta = res_json["candidates"][0]["content"]["parts"][0]["text"]
-            return texto_resposta
-        else:
-            return f"⚠️ Erro HTTP na API ({response.status_code}): {response.text}"
+        # Utiliza o modelo padrão recomendado gemini-2.5-flash
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt_completo,
+        )
+        return response.text
     except Exception as e:
-        return f"⚠️ Erro de conexão com a API: {str(e)}"
+        return f"⚠️ Erro ao comunicar com a API do Gemini: {str(e)}"
 
 # =========================================================
 # 3. INTERFACE DO DASHBOARD NO STREAMLIT
 # =========================================================
 
-# Estilo CSS para arredondar a imagem circular e cortar as bordas quadradas brancas
+# Estilo CSS para arredondar a imagem circular
 st.markdown("""
     <style>
     [data-testid="stImage"] img {
@@ -201,7 +193,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Proporção centralizada e ajustada para tamanho médio
+# Cabeçalho com imagens centralizadas lado a lado e título abaixo
 col_esq, col_img1, col_img2, col_dir = st.columns([2.5, 1, 1, 2.5])
 
 with col_img1:
