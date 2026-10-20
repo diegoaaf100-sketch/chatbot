@@ -80,7 +80,7 @@ def conectar_google_sheets():
     return client.open_by_url(spreadsheet_url)
 
 def processar_matriz_geral(matriz):
-    """Localiza automaticamente a linha do cabeçalho na aba GERAL e limpa linhas de metadados."""
+    """Localiza automaticamente o cabeçalho na aba GERAL e filtra estritamente linhas com matrícula numérica."""
     if not matriz or len(matriz) < 1:
         return pd.DataFrame()
     
@@ -127,9 +127,7 @@ def processar_matriz_geral(matriz):
     df = pd.DataFrame(dados_estruturados)
     df = df.dropna(how="all")
     
-    for col_verif in df.columns:
-        df = df[~df[col_verif].astype(str).str.lower().str.contains("atualizado em", na=False)]
-
+    # Padroniza nome da coluna Matrícula
     novos_nomes = {}
     for col in df.columns:
         col_lower = str(col).lower()
@@ -137,7 +135,11 @@ def processar_matriz_geral(matriz):
             novos_nomes[col] = "Matrícula"
     if novos_nomes:
         df = df.rename(columns=novos_nomes)
-        
+
+    # REGRA DE FILTRO: Exclui linhas onde a coluna de Matrícula NÃO possui números (\d+)
+    if "Matrícula" in df.columns:
+        df = df[df["Matrícula"].astype(str).str.contains(r'\d+', na=False)]
+
     return df
 
 @st.cache_data(ttl=1800)
@@ -224,7 +226,7 @@ def processar_relatorio_chat(pergunta: str, df: pd.DataFrame) -> dict:
             "nome_arquivo": f"{titulo_relatorio.lower().replace(' ', '_')}.csv"
         }
 
-    # 1. Posto / Graduação (Colocado primeiro para evitar conflito com a palavra graduação em formação)
+    # 1. Posto / Graduação
     if "posto" in p or "graduacao" in p:
         return gerar_resposta(col_posto, "Relatório de Militares por Posto / Graduação")
 
