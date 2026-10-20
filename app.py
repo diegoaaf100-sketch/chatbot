@@ -80,24 +80,17 @@ def conectar_google_sheets():
     return client.open_by_url(spreadsheet_url)
 
 def processar_matriz_geral(matriz):
-    """Localiza automaticamente o cabeçalho na aba GERAL e filtra estritamente linhas com matrícula numérica."""
+    """Localiza o cabeçalho oficial e elimina estritamente repetições de cabeçalho e metadados."""
     if not matriz or len(matriz) < 1:
         return pd.DataFrame()
     
     idx_cabecalho = None
     for i, linha in enumerate(matriz[:15]):
         linha_texto = " ".join([str(c).strip().lower() for c in linha if c is not None])
-        if "posto" in linha_texto:
+        if "posto" in linha_texto or "matricula" in linha_texto or "matrícula" in linha_texto:
             idx_cabecalho = i
             break
             
-    if idx_cabecalho is None:
-        for i, linha in enumerate(matriz[:15]):
-            linha_texto = " ".join([str(c).strip().lower() for c in linha if c is not None])
-            if "matricula" in linha_texto or "matrícula" in linha_texto:
-                idx_cabecalho = i
-                break
-                
     if idx_cabecalho is None:
         idx_cabecalho = 0
 
@@ -112,6 +105,8 @@ def processar_matriz_geral(matriz):
     dados_estruturados = []
     for linha in linhas:
         linha_str = " ".join([str(c).strip().lower() for c in linha if c is not None])
+        
+        # Ignora linhas vazias ou metadados de atualização
         if not any(str(c).strip() for c in linha) or "atualizado" in linha_str:
             continue
             
@@ -127,18 +122,29 @@ def processar_matriz_geral(matriz):
     df = pd.DataFrame(dados_estruturados)
     df = df.dropna(how="all")
     
-    # Padroniza nome da coluna Matrícula
+    # Padroniza o nome da coluna Matrícula
     novos_nomes = {}
     for col in df.columns:
-        col_lower = str(col).lower()
-        if col_lower.startswith("matrícula") or col_lower.startswith("matricula"):
+        col_lower = str(col).lower().strip()
+        if col_lower.startswith("matrícula") or col_lower.startswith("matricula") or col_lower == "mat":
             novos_nomes[col] = "Matrícula"
     if novos_nomes:
         df = df.rename(columns=novos_nomes)
 
-    # REGRA DE FILTRO: Exclui linhas onde a coluna de Matrícula NÃO possui números (\d+)
+    # -------------------------------------------------------------
+    # LIMPEZA RIGOROSA DE CABEÇALHOS REPETIDOS E METADADOS
+    # -------------------------------------------------------------
     if "Matrícula" in df.columns:
-        df = df[df["Matrícula"].astype(str).str.contains(r'\d+', na=False)]
+        # 1. Remove qualquer linha onde o texto da matrícula seja igual a palavras do cabeçalho
+        termos_cabecalho = ["matricula", "matrícula", "mat", "posto", "posto / graduação", "posto/graduacao", "nome", "atualizado em"]
+        df = df[~df["Matrícula"].astype(str).str.lower().str.strip().isin(termos_cabecalho)]
+        
+        # 2. Exige que a coluna Matrícula contenha pelo menos um número
+        df = df[df["Matrícula"].astype(str).str.contains(r'\d', na=False)]
+
+    # Filtro de varredura secundário em todas as colunas para eliminar linhas com 'Atualizado em'
+    for col in df.columns:
+        df = df[~df[col].astype(str).str.lower().str.contains("atualizado em", na=False)]
 
     return df
 
