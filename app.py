@@ -58,7 +58,7 @@ if st.sidebar.button("🚪 Sair / Logout", key="btn_logout"):
 st.sidebar.divider()
 
 # =========================================================
-# 1. CONEXÃO COM A PLANILHA PRIVADA E CARREGAMENTO DINÂMICO
+# 1. CONEXÃO COM A PLANILHA PRIVADA E CARREGAMENTO DA ABA GERAL
 # =========================================================
 @st.cache_resource
 def conectar_google_sheets():
@@ -79,8 +79,8 @@ def conectar_google_sheets():
     spreadsheet_url = spreadsheet_url.strip(" {}'\"")
     return client.open_by_url(spreadsheet_url)
 
-def processar_matriz_aba(matriz, nome_aba):
-    """Localiza automaticamente a linha exata onde o cabeçalho começa (buscando por 'Posto') e descarta tudo acima."""
+def processar_matriz_geral(matriz):
+    """Localiza automaticamente a linha do cabeçalho na aba GERAL e limpa linhas de metadados."""
     if not matriz or len(matriz) < 1:
         return pd.DataFrame()
     
@@ -138,35 +138,21 @@ def processar_matriz_aba(matriz, nome_aba):
     if novos_nomes:
         df = df.rename(columns=novos_nomes)
         
-    df["Unidade_Origem"] = nome_aba
     return df
 
 @st.cache_data(ttl=1800)
-def carregar_todas_as_abas() -> dict:
-    """Lê todas as abas existentes na planilha diretamente do Google Sheets."""
+def carregar_aba_geral() -> pd.DataFrame:
+    """Lê exclusivamente a aba GERAL da planilha do Google Sheets."""
     try:
         sh = conectar_google_sheets()
-        worksheets = sh.worksheets()
-        
-        abas_dict = {}
-        for ws in worksheets:
-            if ws.title.startswith("_"):
-                continue
-            matriz = ws.get_all_values()
-            df_aba = processar_matriz_aba(matriz, ws.title)
-            if not df_aba.empty:
-                abas_dict[ws.title] = df_aba
-                    
-        return abas_dict
+        ws = sh.worksheet("GERAL")
+        matriz = ws.get_all_values()
+        return processar_matriz_geral(matriz)
     except Exception as e:
-        st.error(f"⚠️ Erro ao conectar e baixar dados do Google Sheets: {e}")
-        return {}
+        st.error(f"⚠️ Erro ao conectar ou carregar a aba 'GERAL' do Google Sheets: {e}")
+        return pd.DataFrame()
 
-todas_abas = carregar_todas_as_abas()
-lista_abas_disponiveis = ["🔍 VISÃO GERAL"] + sorted(list(todas_abas.keys()))
-
-st.sidebar.header("🗂️ Seleção de Unidade / Seção")
-aba_selecionada = st.sidebar.selectbox("Selecione a OME / Unidade:", lista_abas_disponiveis, key="select_ome_unidade")
+df_geral = carregar_aba_geral()
 
 # =========================================================
 # 2. MOTOR DE RELATÓRIOS DO CHATBOT
@@ -194,7 +180,7 @@ def processar_relatorio_chat(pergunta: str, df: pd.DataFrame) -> dict:
     p = ''.join(c for c in unicodedata.normalize('NFD', pergunta) if unicodedata.category(c) != 'Mn').lower().strip()
     
     if df.empty:
-        return {"texto": "⚠️ Não há dados disponíveis para gerar o relatório solicitado no momento."}
+        return {"texto": "⚠️ Não há dados disponíveis na aba GERAL para gerar o relatório solicitado no momento."}
 
     col_posto = buscar_coluna(df, ["posto / graduacao", "posto/graduacao", "posto", "graduacao"])
     col_matricula = buscar_coluna(df, ["matricula", "matrícula", "mat"])
@@ -334,13 +320,7 @@ with col_img2:
 st.markdown("<h1 style='text-align: center;'>Relatório do Efetivo</h1>", unsafe_allow_html=True)
 st.divider()
 
-if aba_selecionada == "🔍 VISÃO GERAL":
-    if todas_abas:
-        df = pd.concat(list(todas_abas.values()), ignore_index=True)
-    else:
-        df = pd.DataFrame()
-else:
-    df = todas_abas.get(aba_selecionada, pd.DataFrame())
+df = df_geral
 
 if not df.empty:
     st.sidebar.divider()
@@ -349,9 +329,6 @@ if not df.empty:
     df_filtrado = df.copy()
 
     for idx, coluna in enumerate(df.columns):
-        if coluna == "Unidade_Origem":
-            continue
-            
         valores_unicos = df[coluna].dropna().unique()
         
         if len(valores_unicos) <= 25 and len(valores_unicos) > 1:
@@ -365,7 +342,7 @@ if not df.empty:
             if busca:
                 df_filtrado = df_filtrado[df_filtrado[coluna].astype(str).str.lower().str.contains(busca.lower(), na=False)]
 
-    st.subheader(f"Efetivo: {aba_selecionada}")
+    st.subheader("Efetivo Consolidado (Aba GERAL)")
     
     col1, col2, col3, col4 = st.columns(4)
     with col1:
@@ -389,7 +366,7 @@ if not df.empty:
     st.download_button(
         label="📥 Baixar Relatório Consolidado em CSV",
         data=csv,
-        file_name=f"relatorio_efetivo_{aba_selecionada.lower().replace(' ', '_')}.csv",
+        file_name="relatorio_efetivo_geral.csv",
         mime='text/csv',
         key="download_consolidado"
     )
@@ -465,7 +442,7 @@ if not df.empty:
         st.rerun()
 
 else:
-    st.warning("⚠️ Não foram encontrados dados para exibir nesta seleção. Verifique se a planilha contém linhas preenchidas.")
+    st.warning("⚠️ Não foram encontrados dados na aba 'GERAL'. Verifique se a aba existe e contém registros preenchidos.")
 
 st.divider()
 st.caption("Painel de Efetivo • Desenvolvido com Streamlit e Google Sheets API")
