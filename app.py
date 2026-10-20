@@ -224,54 +224,58 @@ def processar_relatorio_chat(pergunta: str, df: pd.DataFrame) -> dict:
             "nome_arquivo": f"{titulo_relatorio.lower().replace(' ', '_')}.csv"
         }
 
-    # 1. Matrícula
-    if "matricula" in p:
+    # 1. Posto / Graduação (Colocado primeiro para evitar conflito com a palavra graduação em formação)
+    if "posto" in p or "graduacao" in p:
+        return gerar_resposta(col_posto, "Relatório de Militares por Posto / Graduação")
+
+    # 2. Matrícula
+    elif "matricula" in p:
         return gerar_resposta(col_matricula, "Relatório de Militares por Matrícula", por_numero=True)
 
-    # 2. Nome de Guerra
+    # 3. Nome de Guerra
     elif "nome de guerra" in p or "guerra" in p:
         col_guerra = buscar_coluna(df, ["nome de guerra", "guerra", "nome_guerra"])
         return gerar_resposta(col_guerra, "Relatório de Militares por Nome de Guerra")
 
-    # 3. Nome / Ordem Alfabética
+    # 4. Nome / Ordem Alfabética
     elif "nome" in p or "alfabetica" in p or "alfabeto" in p:
         return gerar_resposta(col_nome, "Relatório de Militares por Ordem Alfabética")
 
-    # 4. OME e Seção
+    # 5. OME e Seção
     elif "secao" in p and "ome" in p:
         col_sec = buscar_coluna(df, ["secao", "seção", "subunidade", "divisao"])
         return gerar_resposta(col_ome, "Relatório de Militares por OME e Seção", col_extra=col_sec)
 
-    # 5. OME
+    # 6. OME
     elif "ome" in p or "unidade" in p:
         return gerar_resposta(col_ome, "Relatório de Militares por OME")
 
-    # 6. Área de Formação 2
+    # 7. Área de Formação 2
     elif "formacao 2" in p or "area de formacao 2" in p:
         col_f2 = buscar_coluna(df, ["area de formacao 2", "formacao 2", "area de formacao2"])
         return gerar_resposta(col_f2, "Relatório de Militares por Área de Formação 2")
 
-    # 7. Área de Formação 1 (ou Área de Formação)
-    elif "formacao" in p or "curso" in p or "graduacao" in p:
+    # 8. Área de Formação 1 (ou Área de Formação)
+    elif "formacao" in p or "curso" in p:
         col_f1 = buscar_coluna(df, ["area de formacao 1", "area de formacao", "formacao 1", "formacao"])
         return gerar_resposta(col_f1, "Relatório de Militares por Área de Formação")
 
-    # 8. Escolaridade
+    # 9. Escolaridade
     elif "escolaridade" in p or "instrucao" in p:
         col_esc = buscar_coluna(df, ["escolaridade", "instrucao", "grau", "nivel"])
         return gerar_resposta(col_esc, "Relatório de Militares por Escolaridade")
 
-    # 9. Cidade
+    # 10. Cidade
     elif "cidade" in p or "municipio" in p or "residencia" in p:
         col_cid = buscar_coluna(df, ["cidade", "municipio", "residencia", "endereco"])
         return gerar_resposta(col_cid, "Relatório de Militares por Cidade")
 
-    # 10. Acumulação de Cargo
+    # 11. Acumulação de Cargo
     elif "acumulacao" in p or "cargo" in p:
         col_ac = buscar_coluna(df, ["acumulacao de cargo publico", "acumulacao de cargo", "acumulacao", "cargo"])
         return gerar_resposta(col_ac, "Relatório de Militares por Acumulação de Cargo Público")
 
-    # 11. Afastamento
+    # 12. Afastamento
     elif "afastamento" in p or "licenca" in p:
         col_af = buscar_coluna(df, ["afastamento", "status", "situacao"])
         col_tipo = buscar_coluna(df, ["tipo de afastamento", "motivo", "tipo"])
@@ -282,6 +286,7 @@ def processar_relatorio_chat(pergunta: str, df: pd.DataFrame) -> dict:
             "texto": (
                 "🤖 **Menu de Relatórios Automatizados:**\n\n"
                 "Digite uma das opções abaixo para gerar o relatório desejado:\n"
+                "• Relatório de militares por posto / graduação\n"
                 "• Relatório de militares por ordem alfabética\n"
                 "• Relatório de militares por OME\n"
                 "• Relatório de militares por OME e seção\n"
